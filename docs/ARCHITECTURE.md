@@ -26,6 +26,12 @@ Network code must not depend on crypto implementation types that contain raw
 secrets. Decrypted content is memory-only by default and is not persisted in
 Room, saved UI state, analytics, logs, or crash reports.
 
+`core:crypto` uses the pure-Java TweetNaCl port for protocol-v1 X25519,
+XSalsa20, and Poly1305 compatibility. Keeping this module independent of the
+Android framework makes every canonical vector executable as a fast JVM test.
+Android Keystore integration will wrap device-local material above this layer;
+it does not replace the portable protocol representation.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in

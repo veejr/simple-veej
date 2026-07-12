@@ -9,5 +9,7 @@ package org.veejr.core.crypto
 object CryptoBoundary {
     const val PBKDF2_ITERATIONS = 310_000
     const val IDENTITY_KEY_BYTES = 32
+    const val SECRETBOX_KEY_BYTES = 32
     const val NONCE_BYTES = 24
+    const val WRAP_SALT_BYTES = 16
 }

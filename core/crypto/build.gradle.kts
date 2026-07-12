@@ -9,6 +9,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core:model"))
+    implementation(libs.tweetnacl)
     testImplementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }

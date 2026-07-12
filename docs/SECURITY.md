@@ -17,3 +17,16 @@ Release builds reject cleartext instance URLs. The portable identity key stays
 wrapped using the protocol-defined passphrase format. A future device-local
 copy may be additionally protected by Android Keystore but must not replace the
 portable representation.
+
+## Cryptographic implementation
+
+Protocol-v1 boxes use `org.purejava:tweetnacl-java`. The dependency is a
+pure-Java port of TweetNaCl, so the same implementation runs in JVM tests and
+on Android without native ABI packaging. Canonical fixtures assert
+byte-for-byte compatibility with the browser for PBKDF2 wrapping, public-key
+boxes, and attachment secretboxes, including authentication failure after
+ciphertext tampering.
+
+Passing interoperability tests does not replace an independent security
+review. Dependency updates and changes under `core:crypto` require fixture
+validation and focused review.
