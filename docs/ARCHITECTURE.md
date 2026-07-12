@@ -32,6 +32,12 @@ Android framework makes every canonical vector executable as a fast JVM test.
 Android Keystore integration will wrap device-local material above this layer;
 it does not replace the portable protocol representation.
 
+`core:network` uses suspendable OkHttp calls and Kotlin serialization for the
+versioned JSON contract. Its client does not follow redirects, preventing an
+authenticated request from silently crossing instance origins. Access and
+refresh tokens are added only to the endpoints that require them, and
+token-bearing objects redact their string representation.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in

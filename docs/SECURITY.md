@@ -30,3 +30,8 @@ ciphertext tampering.
 Passing interoperability tests does not replace an independent security
 review. Dependency updates and changes under `core:crypto` require fixture
 validation and focused review.
+
+The network client disables HTTP and HTTPS redirects. This is deliberate:
+native API credentials must never follow a server response to another origin.
+Release code permits only HTTPS instance URLs, does not install an HTTP logging
+interceptor, and keeps access and refresh tokens out of exception messages.
