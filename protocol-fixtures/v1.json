@@ -1,0 +1,43 @@
+{
+  "schema": "org.veejr.protocol-fixtures",
+  "schema_version": 1,
+  "protocol": {
+    "api_version": 1,
+    "payload_version": 1
+  },
+  "encoding": "standard-padded-base64",
+  "identity": {
+    "sender_secret_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "sender_public_key": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+    "recipient_secret_key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+    "recipient_public_key": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ="
+  },
+  "wrapping": {
+    "passphrase": "veejr fixture 🔐",
+    "kdf": "PBKDF2-HMAC-SHA256",
+    "iterations": 310000,
+    "salt": "QEFCQ0RFRkdISUpLTE1OTw==",
+    "derived_key": "4B+VhjLbSRcrUCPVJsH5Hdae9QWvAuvsDgTNyXdvbtk=",
+    "algorithm": "XSalsa20-Poly1305",
+    "nonce": "UFFSU1RVVldYWVpbXF1eX2BhYmNkZWZn",
+    "plaintext_secret_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "wrapped_secret_key": "gqqCIflLieDRQaocSeIUXp7pDpajVduR08Njens4sqgckMQO0Qs0LU0+z1oGRQGa"
+  },
+  "envelope": {
+    "algorithm": "nacl.box",
+    "payload_json": "{\"v\":1,\"kind\":\"message\",\"text\":\"Hello, Bob 👋\",\"attachments\":[],\"to\":[\"@bob@example.test\"],\"sent_at\":\"2026-07-12T14:00:00.000Z\"}",
+    "nonce": "cHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaH",
+    "sender_secret_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "sender_public_key": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+    "recipient_secret_key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+    "recipient_public_key": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ=",
+    "ciphertext": "EHZMn/lSwNpXShg2B+oFlsExat0E2SmOFLkJvCfCA7uyI1BiAYMmREwPvMS8WxmcKNCTf/bWEAIJy/lE7LxBq15yI+9w1rNqWsQSc9Sg/2w4WuamNqyFgnE4CGQOQdlraPq5c63SIPg96QB9+Z9fNM0ARbFFupEaGWlUDuTeI2NNZkqFII0eaerMhExKoY7d58E="
+  },
+  "attachment": {
+    "algorithm": "nacl.secretbox",
+    "plaintext_utf8": "fixture attachment\n",
+    "key": "kJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq8=",
+    "nonce": "sLGys7S1tre4ubq7vL2+v8DBwsPExcbH",
+    "ciphertext": "SfWEesvJqbPe/B7BYFj6K+wB9qP+DyWXUXJeZS9a7hLNHB8="
+  }
+}

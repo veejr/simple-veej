@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -8,5 +9,10 @@ kotlin {
 
 dependencies {
     implementation(project(":core:model"))
+    testImplementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
+}
+
+tasks.test {
+    systemProperty("veejr.fixtures.dir", rootProject.file("protocol-fixtures").absolutePath)
 }
