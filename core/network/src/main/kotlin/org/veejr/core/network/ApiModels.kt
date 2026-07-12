@@ -81,6 +81,44 @@ data class KeySetupRequest(
 )
 
 @Serializable
+data class SenderSummary(val id: String, val handle: String)
+
+@Serializable
+data class PendingNotification(
+    val id: String,
+    val kind: String,
+    val sender: SenderSummary,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("max_displays") val maxDisplays: Int? = null,
+)
+
+@Serializable
+data class NotificationsResponse(val notifications: List<PendingNotification>)
+
+@Serializable
+data class Envelope(
+    @SerialName("public_id") val publicId: String,
+    @SerialName("batch_id") val batchId: String,
+    val kind: String,
+    val ciphertext: String,
+    val nonce: String,
+    @SerialName("peer_key") val peerKey: String,
+    val sender: SenderSummary,
+    @SerialName("sent_by_me") val sentByMe: Boolean,
+    val resealed: Boolean,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("edited_at") val editedAt: String? = null,
+    @SerialName("delivered_at") val deliveredAt: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("max_displays") val maxDisplays: Int? = null,
+    @SerialName("display_count") val displayCount: Int,
+)
+
+@Serializable
+data class EnvelopeResponse(val envelope: Envelope)
+
+@Serializable
 data class ApiError(
     val code: String,
     val message: String,

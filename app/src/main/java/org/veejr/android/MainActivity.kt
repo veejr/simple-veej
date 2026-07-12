@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,8 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +83,9 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                         AppScreen.KEY_UNLOCK -> KeyUnlockScreen(state, viewModel::unlockIdentity)
                         AppScreen.HOME -> HomeScreen(
                             state = state,
+                            onAccept = viewModel::acceptNotification,
+                            onDecline = viewModel::declineNotification,
+                            onRefresh = viewModel::refreshInbox,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )
@@ -268,7 +274,14 @@ private fun LoginScreen(
 }
 
 @Composable
-private fun HomeScreen(state: AppUiState, onLogout: () -> Unit, onChangeInstance: () -> Unit) {
+private fun HomeScreen(
+    state: AppUiState,
+    onAccept: (String) -> Unit,
+    onDecline: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onLogout: () -> Unit,
+    onChangeInstance: () -> Unit,
+) {
     val account = state.account ?: return
     AppCard {
         BrandHeader("You’re connected", state.endpoint.removePrefix("https://"))
@@ -296,6 +309,78 @@ private fun HomeScreen(state: AppUiState, onLogout: () -> Unit, onChangeInstance
                 )
             }
         }
+        Spacer(Modifier.height(24.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text("Inbox", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    "${state.notifications.size} waiting for consent",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onRefresh, enabled = !state.loading) { Text("Refresh") }
+        }
+        if (state.notifications.isEmpty() && state.messages.isEmpty()) {
+            Text(
+                "No messages yet. Pending content appears here without being downloaded.",
+                modifier = Modifier.padding(top = 18.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        state.notifications.forEach { notification ->
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "${notification.sender.handle} sent an encrypted ${notification.kind}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        "Nothing is downloaded until you accept.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { onDecline(notification.id) }) { Text("Decline") }
+                        Button(onClick = { onAccept(notification.id) }) { Text("Accept") }
+                    }
+                }
+            }
+        }
+        state.messages.forEach { message ->
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        message.senderHandle,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        message.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
         ErrorText(state.error)
         Spacer(Modifier.height(24.dp))
         OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(50.dp)) {
@@ -315,7 +400,10 @@ private fun AppCard(content: @Composable ColumnScope.() -> Unit) {
         tonalElevation = 3.dp,
         shadowElevation = 8.dp,
     ) {
-        Column(modifier = Modifier.padding(28.dp), content = content)
+        Column(
+            modifier = Modifier.padding(28.dp).verticalScroll(rememberScrollState()),
+            content = content,
+        )
     }
 }
 

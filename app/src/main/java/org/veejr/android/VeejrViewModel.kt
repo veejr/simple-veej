@@ -15,6 +15,7 @@ import org.veejr.core.network.Account
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.DeviceInfo
+import org.veejr.core.network.PendingNotification
 import org.veejr.core.network.VeejrApi
 import org.veejr.core.network.VeejrApiClient
 import org.veejr.core.network.VeejrApiException
@@ -27,6 +28,15 @@ data class AppUiState(
     val account: Account? = null,
     val loading: Boolean = true,
     val error: String? = null,
+    val notifications: List<PendingNotification> = emptyList(),
+    val messages: List<InboxMessage> = emptyList(),
+)
+
+data class InboxMessage(
+    val publicId: String,
+    val senderHandle: String,
+    val text: String,
+    val createdAt: String,
 )
 
 class VeejrViewModel(
@@ -96,7 +106,13 @@ class VeejrViewModel(
         runCatching { sessionManager?.logout() }
         clearIdentity()
         mutableState.update {
-            it.copy(screen = AppScreen.LOGIN, account = null, loading = false)
+            it.copy(
+                screen = AppScreen.LOGIN,
+                account = null,
+                loading = false,
+                notifications = emptyList(),
+                messages = emptyList(),
+            )
         }
     }
 
@@ -127,6 +143,7 @@ class VeejrViewModel(
             mutableState.update {
                 it.copy(screen = AppScreen.HOME, account = account, loading = false)
             }
+            loadInbox()
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         } finally {
@@ -153,6 +170,7 @@ class VeejrViewModel(
                 clearIdentity()
                 identitySecret = secret
                 mutableState.update { it.copy(screen = AppScreen.HOME, loading = false) }
+                loadInbox()
             }
         } finally {
             chars.fill('\u0000')
@@ -160,6 +178,64 @@ class VeejrViewModel(
     }
 
     fun dismissError() = mutableState.update { it.copy(error = null) }
+
+    fun refreshInbox() = viewModelScope.launch {
+        mutableState.update { it.copy(loading = true, error = null) }
+        loadInbox()
+    }
+
+    fun acceptNotification(id: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        val secret = identitySecret ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        try {
+            val envelope = manager.acceptNotification(id)
+            val text = withContext(Dispatchers.Default) {
+                identityCoordinator.openMessage(envelope, secret)
+            }
+            if (text == null) {
+                mutableState.update {
+                    it.copy(
+                        loading = false,
+                        notifications = it.notifications.filterNot { item -> item.id == id },
+                        error = "The accepted message could not be decrypted.",
+                    )
+                }
+            } else {
+                val message = InboxMessage(
+                    publicId = envelope.publicId,
+                    senderHandle = envelope.sender.handle,
+                    text = text,
+                    createdAt = envelope.createdAt,
+                )
+                mutableState.update {
+                    it.copy(
+                        loading = false,
+                        notifications = it.notifications.filterNot { item -> item.id == id },
+                        messages = listOf(message) + it.messages,
+                    )
+                }
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
+    }
+
+    fun declineNotification(id: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        try {
+            manager.declineNotification(id)
+            mutableState.update {
+                it.copy(
+                    loading = false,
+                    notifications = it.notifications.filterNot { item -> item.id == id },
+                )
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
+    }
 
     private fun restoreSession() = viewModelScope.launch {
         val storedEndpoint = storage.endpoint
@@ -217,6 +293,16 @@ class VeejrViewModel(
     private fun clearIdentity() {
         identitySecret?.fill(0)
         identitySecret = null
+    }
+
+    private suspend fun loadInbox() {
+        val manager = sessionManager ?: return
+        try {
+            val notifications = manager.pendingNotifications()
+            mutableState.update { it.copy(loading = false, notifications = notifications) }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
     }
 
     override fun onCleared() {

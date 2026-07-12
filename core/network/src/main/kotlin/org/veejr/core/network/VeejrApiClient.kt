@@ -17,6 +17,9 @@ interface VeejrApi {
     suspend fun refresh(refreshToken: String): RefreshResponse
     suspend fun me(accessToken: String): AccountResponse
     suspend fun setupKeys(accessToken: String, request: KeySetupRequest): AccountResponse
+    suspend fun pendingNotifications(accessToken: String): NotificationsResponse
+    suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse
+    suspend fun declineNotification(accessToken: String, id: String)
     suspend fun logout(accessToken: String)
 }
 
@@ -55,6 +58,19 @@ class VeejrApiClient(
         request: KeySetupRequest,
     ): AccountResponse = put("keys", request, accessToken)
 
+    override suspend fun pendingNotifications(accessToken: String): NotificationsResponse =
+        get("notifications?state=pending", accessToken)
+
+    override suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse =
+        postAuthenticated("notifications/$id/accept", accessToken)
+
+    override suspend fun declineNotification(accessToken: String, id: String) {
+        val request = request("notifications/$id/decline", accessToken)
+            .post(EMPTY_JSON_BODY)
+            .build()
+        executeNoContent(request)
+    }
+
     override suspend fun logout(accessToken: String) {
         val request = request("auth/session", accessToken)
             .delete()
@@ -85,6 +101,14 @@ class VeejrApiClient(
         val request = request(path, accessToken)
             .put(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
+        return execute(request)
+    }
+
+    private suspend inline fun <reified ResponseType> postAuthenticated(
+        path: String,
+        accessToken: String,
+    ): ResponseType {
+        val request = request(path, accessToken).post(EMPTY_JSON_BODY).build()
         return execute(request)
     }
 
@@ -146,5 +170,6 @@ class VeejrApiClient(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        val EMPTY_JSON_BODY = "{}".toRequestBody(JSON_MEDIA_TYPE)
     }
 }

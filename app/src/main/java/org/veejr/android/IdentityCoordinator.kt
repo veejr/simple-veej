@@ -3,9 +3,13 @@ package org.veejr.android
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.veejr.core.crypto.CryptoBoundary
 import org.veejr.core.crypto.VeejrCrypto
 import org.veejr.core.network.KeySetupRequest
+import org.veejr.core.network.Envelope
 import org.veejr.core.network.WrappedKey
 import org.veejr.core.network.WrappedKeyKdf
 
@@ -76,10 +80,31 @@ class IdentityCoordinator(
         }.getOrNull()
     }
 
+    fun openMessage(envelope: Envelope, secretKey: ByteArray): String? = runCatching {
+        val plaintext = crypto.openBox(
+            ciphertext = envelope.ciphertext.base64BytesAtLeast(16),
+            nonce = envelope.nonce.base64Bytes(CryptoBoundary.NONCE_BYTES),
+            senderPublicKey = envelope.peerKey.base64Bytes(CryptoBoundary.IDENTITY_KEY_BYTES),
+            recipientSecretKey = secretKey,
+        ) ?: return@runCatching null
+        try {
+            val payload = Json.parseToJsonElement(plaintext.toString(Charsets.UTF_8)).jsonObject
+            if (
+                payload["v"]?.jsonPrimitive?.content != "1" ||
+                payload["kind"]?.jsonPrimitive?.content != "message"
+            ) null else payload["text"]?.jsonPrimitive?.content?.takeIf(String::isNotEmpty)
+        } finally {
+            plaintext.fill(0)
+        }
+    }.getOrNull()
+
     private fun ByteArray.base64(): String = Base64.getEncoder().encodeToString(this)
 
     private fun String.base64Bytes(expectedBytes: Int): ByteArray =
         Base64.getDecoder().decode(this).also { require(it.size == expectedBytes) }
+
+    private fun String.base64BytesAtLeast(minimumBytes: Int): ByteArray =
+        Base64.getDecoder().decode(this).also { require(it.size >= minimumBytes) }
 
     companion object {
         const val MIN_PASSPHRASE_LENGTH = 8

@@ -29,6 +29,15 @@ class AuthSessionManager(
     suspend fun setupKeys(request: KeySetupRequest): Account =
         withAccessToken { accessToken -> api.setupKeys(accessToken, request).account }
 
+    suspend fun pendingNotifications(): List<PendingNotification> =
+        withAccessToken { accessToken -> api.pendingNotifications(accessToken).notifications }
+
+    suspend fun acceptNotification(id: String): Envelope =
+        withAccessToken { accessToken -> api.acceptNotification(accessToken, id).envelope }
+
+    suspend fun declineNotification(id: String) =
+        withAccessToken { accessToken -> api.declineNotification(accessToken, id) }
+
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 
     suspend fun logout() {

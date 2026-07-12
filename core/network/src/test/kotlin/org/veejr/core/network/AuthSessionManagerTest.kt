@@ -151,6 +151,14 @@ class AuthSessionManagerTest {
             request: KeySetupRequest,
         ): AccountResponse = AccountResponse(ACCOUNT)
 
+        override suspend fun pendingNotifications(accessToken: String) =
+            NotificationsResponse(emptyList())
+
+        override suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse =
+            error("not used")
+
+        override suspend fun declineNotification(accessToken: String, id: String) = Unit
+
         override suspend fun logout(accessToken: String) {
             logoutError?.let { throw it }
         }

@@ -20,6 +20,10 @@ import org.veejr.core.network.Capabilities
 import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.LoginResponse
 import org.veejr.core.network.KeySetupRequest
+import org.veejr.core.network.EnvelopeResponse
+import org.veejr.core.network.NotificationsResponse
+import org.veejr.core.network.PendingNotification
+import org.veejr.core.network.SenderSummary
 import org.veejr.core.network.RefreshResponse
 import org.veejr.core.network.SessionTokens
 import org.veejr.core.network.VeejrApi
@@ -119,6 +123,23 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `unlocked inbox loads pending metadata and decline removes it`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi().apply { notifications = listOf(NOTIFICATION) }
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+
+        assertEquals(listOf(NOTIFICATION), viewModel.state.value.notifications)
+
+        viewModel.declineNotification(NOTIFICATION.id)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<PendingNotification>(), viewModel.state.value.notifications)
+        assertEquals(listOf(NOTIFICATION.id), api.declinedIds)
+    }
+
+    @Test
     fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
@@ -148,6 +169,8 @@ class VeejrViewModelTest {
 
     private class FakeApi : VeejrApi {
         var keySetupRequest: KeySetupRequest? = null
+        var notifications: List<PendingNotification> = emptyList()
+        val declinedIds = mutableListOf<String>()
         override suspend fun capabilities() = Capabilities(
             apiVersions = listOf(1),
             payloadVersions = listOf(1),
@@ -172,6 +195,16 @@ class VeejrViewModelTest {
                 ),
             )
         }
+
+        override suspend fun pendingNotifications(accessToken: String) =
+            NotificationsResponse(notifications)
+
+        override suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse =
+            error("not used")
+
+        override suspend fun declineNotification(accessToken: String, id: String) {
+            declinedIds += id
+        }
         override suspend fun logout(accessToken: String) = Unit
     }
 
@@ -191,6 +224,12 @@ class VeejrViewModelTest {
             refreshToken = "refresh",
             refreshTokenExpiresAt = "2026-08-12T15:00:00Z",
             deviceSessionId = "9",
+        )
+        val NOTIFICATION = PendingNotification(
+            id = "17",
+            kind = "message",
+            sender = SenderSummary("7", "@bob"),
+            createdAt = "2026-07-12T20:00:00Z",
         )
     }
 }

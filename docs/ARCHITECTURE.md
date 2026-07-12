@@ -57,6 +57,11 @@ accounts enter unlock. PBKDF2 and NaCl work runs off the UI thread. The raw
 X25519 secret exists only in ViewModel-owned memory for the active process and
 is zeroed on logout, instance change, failed setup, and ViewModel teardown.
 
+The first inbox slice loads consent metadata only. Accepting a notification
+releases its encrypted envelope, which Android authenticates and decrypts in
+memory using the unlocked identity; declining removes the pending item without
+fetching content. Plaintext messages remain in process memory only.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in
