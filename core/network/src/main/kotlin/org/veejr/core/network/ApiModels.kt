@@ -119,6 +119,58 @@ data class Envelope(
 data class EnvelopeResponse(val envelope: Envelope)
 
 @Serializable
+data class Recipient(
+    val id: String,
+    val username: String,
+    val handle: String,
+    @SerialName("public_key") val publicKey: String,
+)
+
+@Serializable
+data class ContactsResponse(val contacts: List<Recipient>)
+
+@Serializable
+data class ResolveRecipientsRequest(
+    @SerialName("friend_ids") val friendIds: List<String>,
+    @SerialName("group_ids") val groupIds: List<String> = emptyList(),
+    @SerialName("include_self") val includeSelf: Boolean = true,
+)
+
+@Serializable
+data class ResolveRecipientsResponse(
+    val recipients: List<Recipient>,
+    @SerialName("missing_keys") val missingKeys: List<String>,
+)
+
+@Serializable
+data class MessageEnvelopeRequest(
+    @SerialName("recipient_id") val recipientId: String,
+    val ciphertext: String,
+    val nonce: String,
+)
+
+@Serializable
+data class MessageBatchRequest(
+    val kind: String = "message",
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("max_displays") val maxDisplays: Int? = null,
+    val envelopes: List<MessageEnvelopeRequest>,
+)
+
+@Serializable
+data class MessageCopy(
+    @SerialName("recipient_id") val recipientId: String,
+    @SerialName("public_id") val publicId: String,
+)
+
+@Serializable
+data class MessageBatchResponse(
+    @SerialName("batch_id") val batchId: String,
+    val copies: List<MessageCopy>,
+    @SerialName("queued_recipients") val queuedRecipients: List<String>,
+)
+
+@Serializable
 data class ApiError(
     val code: String,
     val message: String,

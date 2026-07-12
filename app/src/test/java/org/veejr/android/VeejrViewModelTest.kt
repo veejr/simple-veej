@@ -24,6 +24,11 @@ import org.veejr.core.network.EnvelopeResponse
 import org.veejr.core.network.NotificationsResponse
 import org.veejr.core.network.PendingNotification
 import org.veejr.core.network.SenderSummary
+import org.veejr.core.network.ContactsResponse
+import org.veejr.core.network.MessageBatchRequest
+import org.veejr.core.network.MessageBatchResponse
+import org.veejr.core.network.ResolveRecipientsRequest
+import org.veejr.core.network.ResolveRecipientsResponse
 import org.veejr.core.network.RefreshResponse
 import org.veejr.core.network.SessionTokens
 import org.veejr.core.network.VeejrApi
@@ -205,6 +210,19 @@ class VeejrViewModelTest {
         override suspend fun declineNotification(accessToken: String, id: String) {
             declinedIds += id
         }
+
+        override suspend fun contacts(accessToken: String) = ContactsResponse(emptyList())
+
+        override suspend fun resolveRecipients(
+            accessToken: String,
+            request: ResolveRecipientsRequest,
+        ) = ResolveRecipientsResponse(emptyList(), emptyList())
+
+        override suspend fun sendMessageBatch(
+            accessToken: String,
+            idempotencyKey: String,
+            request: MessageBatchRequest,
+        ): MessageBatchResponse = error("not used")
         override suspend fun logout(accessToken: String) = Unit
     }
 

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
+import java.security.SecureRandom
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +18,8 @@ import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.PendingNotification
+import org.veejr.core.network.MessageBatchRequest
+import org.veejr.core.network.Recipient
 import org.veejr.core.network.VeejrApi
 import org.veejr.core.network.VeejrApiClient
 import org.veejr.core.network.VeejrApiException
@@ -30,6 +34,7 @@ data class AppUiState(
     val error: String? = null,
     val notifications: List<PendingNotification> = emptyList(),
     val messages: List<InboxMessage> = emptyList(),
+    val contacts: List<Recipient> = emptyList(),
 )
 
 data class InboxMessage(
@@ -112,6 +117,7 @@ class VeejrViewModel(
                 loading = false,
                 notifications = emptyList(),
                 messages = emptyList(),
+                contacts = emptyList(),
             )
         }
     }
@@ -237,6 +243,32 @@ class VeejrViewModel(
         }
     }
 
+    fun sendMessage(friendId: String, text: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        val secret = identitySecret ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        try {
+            val resolved = manager.resolveRecipients(friendId)
+            require(resolved.missingKeys.isEmpty()) { "A recipient has not configured encryption keys." }
+            require(resolved.recipients.size >= 2) { "The recipient is no longer available." }
+            val envelopes = withContext(Dispatchers.Default) {
+                identityCoordinator.sealMessage(text.trim(), resolved.recipients, secret)
+            }
+            manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
+            val message = InboxMessage(
+                publicId = "local-${System.nanoTime()}",
+                senderHandle = "You",
+                text = text.trim(),
+                createdAt = java.time.Instant.now().toString(),
+            )
+            mutableState.update {
+                it.copy(loading = false, messages = listOf(message) + it.messages)
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
+    }
+
     private fun restoreSession() = viewModelScope.launch {
         val storedEndpoint = storage.endpoint
         if (storedEndpoint == null) {
@@ -299,11 +331,18 @@ class VeejrViewModel(
         val manager = sessionManager ?: return
         try {
             val notifications = manager.pendingNotifications()
-            mutableState.update { it.copy(loading = false, notifications = notifications) }
+            val contacts = manager.contacts()
+            mutableState.update {
+                it.copy(loading = false, notifications = notifications, contacts = contacts)
+            }
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         }
     }
+
+    private fun idempotencyKey(): String = ByteArray(16)
+        .also(SecureRandom()::nextBytes)
+        .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     override fun onCleared() {
         clearIdentity()

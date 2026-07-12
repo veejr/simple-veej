@@ -62,6 +62,11 @@ releases its encrypted envelope, which Android authenticates and decrypts in
 memory using the unlocked identity; declining removes the pending item without
 fetching content. Plaintext messages remain in process memory only.
 
+The text composer resolves an accepted friend together with the sender's
+self-copy, serializes one protocol-v1 payload, and seals it independently to
+each public key. A fresh 128-bit idempotency key accompanies every batch so a
+network retry cannot create duplicate messages.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in

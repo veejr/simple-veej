@@ -38,6 +38,21 @@ class AuthSessionManager(
     suspend fun declineNotification(id: String) =
         withAccessToken { accessToken -> api.declineNotification(accessToken, id) }
 
+    suspend fun contacts(): List<Recipient> =
+        withAccessToken { accessToken -> api.contacts(accessToken).contacts }
+
+    suspend fun resolveRecipients(friendId: String): ResolveRecipientsResponse =
+        withAccessToken { accessToken ->
+            api.resolveRecipients(accessToken, ResolveRecipientsRequest(friendIds = listOf(friendId)))
+        }
+
+    suspend fun sendMessageBatch(
+        idempotencyKey: String,
+        request: MessageBatchRequest,
+    ): MessageBatchResponse = withAccessToken { accessToken ->
+        api.sendMessageBatch(accessToken, idempotencyKey, request)
+    }
+
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 
     suspend fun logout() {

@@ -86,6 +86,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onAccept = viewModel::acceptNotification,
                             onDecline = viewModel::declineNotification,
                             onRefresh = viewModel::refreshInbox,
+                            onSend = viewModel::sendMessage,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )
@@ -279,10 +280,12 @@ private fun HomeScreen(
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
     onRefresh: () -> Unit,
+    onSend: (String, String) -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
     val account = state.account ?: return
+    var draft by remember { mutableStateOf("") }
     AppCard {
         BrandHeader("You’re connected", state.endpoint.removePrefix("https://"))
         Spacer(Modifier.height(28.dp))
@@ -324,6 +327,43 @@ private fun HomeScreen(
                 )
             }
             TextButton(onClick = onRefresh, enabled = !state.loading) { Text("Refresh") }
+        }
+        if (state.contacts.isNotEmpty()) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+                label = { Text("Encrypted message") },
+                placeholder = { Text("Write a message…") },
+                minLines = 2,
+                maxLines = 5,
+                enabled = !state.loading,
+            )
+            Text(
+                "Send to",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            state.contacts.forEach { contact ->
+                Button(
+                    onClick = {
+                        onSend(contact.id, draft)
+                        draft = ""
+                    },
+                    enabled = draft.isNotBlank() && !state.loading,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Text("Send to ${contact.handle}")
+                }
+            }
+        } else {
+            Text(
+                "Add an accepted friend on the web app to start a conversation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
         if (state.notifications.isEmpty() && state.messages.isEmpty()) {
             Text(

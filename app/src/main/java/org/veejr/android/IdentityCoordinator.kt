@@ -2,14 +2,21 @@ package org.veejr.android
 
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Instant
 import java.util.Base64
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.veejr.core.crypto.CryptoBoundary
 import org.veejr.core.crypto.VeejrCrypto
 import org.veejr.core.network.KeySetupRequest
 import org.veejr.core.network.Envelope
+import org.veejr.core.network.MessageEnvelopeRequest
+import org.veejr.core.network.Recipient
 import org.veejr.core.network.WrappedKey
 import org.veejr.core.network.WrappedKeyKdf
 
@@ -97,6 +104,39 @@ class IdentityCoordinator(
             plaintext.fill(0)
         }
     }.getOrNull()
+
+    fun sealMessage(
+        text: String,
+        recipients: List<Recipient>,
+        secretKey: ByteArray,
+    ): List<MessageEnvelopeRequest> {
+        require(text.isNotBlank()) { "A message cannot be empty." }
+        val payload = buildJsonObject {
+            put("v", 1)
+            put("kind", "message")
+            put("text", text)
+            put("attachments", buildJsonArray {})
+            put("to", buildJsonArray { recipients.forEach { add(JsonPrimitive(it.handle)) } })
+            put("sent_at", Instant.now().toString())
+        }.toString().toByteArray(Charsets.UTF_8)
+
+        return try {
+            recipients.map { recipient ->
+                val sealed = crypto.sealBox(
+                    payload,
+                    recipient.publicKey.base64Bytes(CryptoBoundary.IDENTITY_KEY_BYTES),
+                    secretKey,
+                )
+                MessageEnvelopeRequest(
+                    recipientId = recipient.id,
+                    ciphertext = sealed.ciphertext.base64(),
+                    nonce = sealed.nonce.base64(),
+                )
+            }
+        } finally {
+            payload.fill(0)
+        }
+    }
 
     private fun ByteArray.base64(): String = Base64.getEncoder().encodeToString(this)
 

@@ -7,6 +7,7 @@ import org.junit.Test
 import org.veejr.core.crypto.VeejrCrypto
 import org.veejr.core.network.Envelope
 import org.veejr.core.network.SenderSummary
+import org.veejr.core.network.Recipient
 
 class IdentityCoordinatorTest {
     @Test
@@ -72,5 +73,31 @@ class IdentityCoordinatorTest {
 
         assertTrue(coordinator.openMessage(envelope, prepared.secretKey) == "hello from web")
         prepared.secretKey.fill(0)
+    }
+
+    @Test
+    fun `seals independent recipient and self copies`() {
+        val coordinator = IdentityCoordinator()
+        val sender = coordinator.prepare("sender passphrase".toCharArray())
+        val recipient = coordinator.prepare("recipient passphrase".toCharArray())
+        val recipients = listOf(
+            Recipient("7", "bob", "@bob", recipient.request.publicKey),
+            Recipient("42", "alice", "@alice", sender.request.publicKey),
+        )
+
+        val copies = coordinator.sealMessage("hello bob", recipients, sender.secretKey)
+
+        assertTrue(copies.map { it.recipientId }.toSet() == setOf("7", "42"))
+        val bobCopy = copies.first { it.recipientId == "7" }
+        val plaintext = VeejrCrypto().openBox(
+            java.util.Base64.getDecoder().decode(bobCopy.ciphertext),
+            java.util.Base64.getDecoder().decode(bobCopy.nonce),
+            java.util.Base64.getDecoder().decode(sender.request.publicKey),
+            recipient.secretKey,
+        )
+        assertTrue(checkNotNull(plaintext).toString(Charsets.UTF_8).contains("hello bob"))
+        plaintext.fill(0)
+        sender.secretKey.fill(0)
+        recipient.secretKey.fill(0)
     }
 }

@@ -20,6 +20,16 @@ interface VeejrApi {
     suspend fun pendingNotifications(accessToken: String): NotificationsResponse
     suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse
     suspend fun declineNotification(accessToken: String, id: String)
+    suspend fun contacts(accessToken: String): ContactsResponse
+    suspend fun resolveRecipients(
+        accessToken: String,
+        request: ResolveRecipientsRequest,
+    ): ResolveRecipientsResponse
+    suspend fun sendMessageBatch(
+        accessToken: String,
+        idempotencyKey: String,
+        request: MessageBatchRequest,
+    ): MessageBatchResponse
     suspend fun logout(accessToken: String)
 }
 
@@ -72,6 +82,25 @@ class VeejrApiClient(
         executeNoContent(request)
     }
 
+    override suspend fun contacts(accessToken: String): ContactsResponse = get("contacts", accessToken)
+
+    override suspend fun resolveRecipients(
+        accessToken: String,
+        request: ResolveRecipientsRequest,
+    ): ResolveRecipientsResponse = postAuthenticated("recipients/resolve", request, accessToken)
+
+    override suspend fun sendMessageBatch(
+        accessToken: String,
+        idempotencyKey: String,
+        request: MessageBatchRequest,
+    ): MessageBatchResponse {
+        val httpRequest = request("message-batches", accessToken)
+            .header("Idempotency-Key", idempotencyKey)
+            .post(json.encodeToString(request).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        return execute(httpRequest)
+    }
+
     override suspend fun logout(accessToken: String) {
         val request = request("auth/session", accessToken)
             .delete()
@@ -110,6 +139,17 @@ class VeejrApiClient(
         accessToken: String,
     ): ResponseType {
         val request = request(path, accessToken).post(EMPTY_JSON_BODY).build()
+        return execute(request)
+    }
+
+    private suspend inline fun <reified RequestType, reified ResponseType> postAuthenticated(
+        path: String,
+        body: RequestType,
+        accessToken: String,
+    ): ResponseType {
+        val request = request(path, accessToken)
+            .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
         return execute(request)
     }
 

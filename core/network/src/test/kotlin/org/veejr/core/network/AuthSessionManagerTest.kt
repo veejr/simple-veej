@@ -159,6 +159,19 @@ class AuthSessionManagerTest {
 
         override suspend fun declineNotification(accessToken: String, id: String) = Unit
 
+        override suspend fun contacts(accessToken: String) = ContactsResponse(emptyList())
+
+        override suspend fun resolveRecipients(
+            accessToken: String,
+            request: ResolveRecipientsRequest,
+        ) = ResolveRecipientsResponse(emptyList(), emptyList())
+
+        override suspend fun sendMessageBatch(
+            accessToken: String,
+            idempotencyKey: String,
+            request: MessageBatchRequest,
+        ): MessageBatchResponse = error("not used")
+
         override suspend fun logout(accessToken: String) {
             logoutError?.let { throw it }
         }
