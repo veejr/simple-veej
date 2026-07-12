@@ -4,8 +4,8 @@ Native Android client for [veejr](https://github.com/veejr/veejr-server), a
 self-hostable Phoenix application for end-to-end encrypted messages,
 attachments, locations, and map notes.
 
-> **Status:** initial architecture scaffold. Encryption and server integration
-> are not implemented yet.
+> **Status:** early native client with instance selection, authentication,
+> encrypted session persistence, and identity-key setup/unlock.
 
 ## Architecture
 
@@ -29,6 +29,20 @@ Prerequisites:
 
 The initial project uses Kotlin, Jetpack Compose, and a small multi-module
 boundary around models, networking, and cryptography.
+
+## Local development
+
+Start Phoenix on the host:
+
+```sh
+cd /path/to/veejr-server
+mix phx.server
+```
+
+Run the Android `debug` variant in an emulator, then enter
+`http://10.0.2.2:4000` as the instance URL. `10.0.2.2` is the emulator's bridge
+to the host loopback interface. HTTP is accepted only by debug builds; release
+builds require HTTPS and disable Android cleartext traffic.
 
 ## Security
 

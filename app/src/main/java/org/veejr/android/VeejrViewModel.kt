@@ -51,7 +51,7 @@ class VeejrViewModel(
 
     fun connect(endpointValue: String) = viewModelScope.launch {
         mutableState.update { it.copy(loading = true, error = null) }
-        val endpoint = runCatching { ApiEndpoint.parse(endpointValue) }.getOrElse {
+        val endpoint = runCatching { parseEndpoint(endpointValue) }.getOrElse {
             mutableState.update { state -> state.copy(loading = false, error = it.message) }
             return@launch
         }
@@ -169,7 +169,7 @@ class VeejrViewModel(
         }
 
         try {
-            val endpoint = ApiEndpoint.parse(storedEndpoint)
+            val endpoint = parseEndpoint(storedEndpoint)
             val manager = AuthSessionManager(apiFactory(endpoint), storage)
             sessionManager = manager
             if (!manager.hasSession()) {
@@ -201,6 +201,9 @@ class VeejrViewModel(
         is IllegalArgumentException -> error.message ?: "That instance URL is not valid."
         else -> "Something went wrong. Please try again."
     }
+
+    private fun parseEndpoint(value: String): ApiEndpoint =
+        ApiEndpoint.parse(value, allowHttp = BuildConfig.DEBUG)
 
     private fun showAccount(account: Account) {
         mutableState.value = AppUiState(

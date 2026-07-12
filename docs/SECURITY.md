@@ -18,6 +18,11 @@ wrapped using the protocol-defined passphrase format. A future device-local
 copy may be additionally protected by Android Keystore but must not replace the
 portable representation.
 
+Debug builds alone permit cleartext instance URLs so an Android emulator can
+reach a developer's Phoenix server at `http://10.0.2.2:4000`. The debug
+manifest enables cleartext traffic and the debug URL parser permits HTTP;
+release variants disable both controls and continue to require HTTPS.
+
 Session tokens are persisted as a single AES-256-GCM record. The encryption key
 is generated inside Android Keystore and is non-exportable; malformed or
 undecryptable records are discarded. The instance URL is non-secret metadata

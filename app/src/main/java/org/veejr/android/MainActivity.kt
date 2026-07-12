@@ -206,7 +206,11 @@ private fun InstanceScreen(state: AppUiState, onConnect: (String) -> Unit) {
             Text("Continue")
         }
         Text(
-            text = "HTTPS is required. veejr checks compatibility before sending credentials.",
+            text = if (BuildConfig.DEBUG) {
+                "Local emulator: use http://10.0.2.2:4000. HTTPS remains required in release builds."
+            } else {
+                "HTTPS is required. veejr checks compatibility before sending credentials."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 16.dp),

@@ -61,6 +61,24 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `HTTP emulator bridge follows the build variant policy`() = runTest(dispatcher) {
+        val storage = FakeStorage()
+        val viewModel = viewModel(storage, FakeApi())
+        advanceUntilIdle()
+
+        viewModel.connect("http://10.0.2.2:4000")
+        advanceUntilIdle()
+
+        if (BuildConfig.DEBUG) {
+            assertEquals(AppScreen.LOGIN, viewModel.state.value.screen)
+            assertEquals("http://10.0.2.2:4000", storage.endpoint)
+        } else {
+            assertEquals(AppScreen.INSTANCE, viewModel.state.value.screen)
+            assertNull(storage.endpoint)
+        }
+    }
+
+    @Test
     fun `login persists session and displays account`() = runTest(dispatcher) {
         val storage = FakeStorage(endpoint = "https://chat.example")
         val api = FakeApi()
