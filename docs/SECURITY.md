@@ -35,3 +35,7 @@ The network client disables HTTP and HTTPS redirects. This is deliberate:
 native API credentials must never follow a server response to another origin.
 Release code permits only HTTPS instance URLs, does not install an HTTP logging
 interceptor, and keeps access and refresh tokens out of exception messages.
+Concurrent requests share a single refresh-token rotation. A rejected refresh
+clears the local session, and logout clears local tokens even when the server
+cannot be reached. The production `SessionTokenStore` must encrypt persisted
+tokens with an Android Keystore-protected key.

@@ -38,6 +38,13 @@ authenticated request from silently crossing instance origins. Access and
 refresh tokens are added only to the endpoints that require them, and
 token-bearing objects redact their string representation.
 
+`AuthSessionManager` is the session boundary above that transport. It persists
+successful login tokens through `SessionTokenStore`, serializes refresh-token
+rotation, retries an authenticated operation once after a 401, and always
+clears local state during logout. The token-store interface deliberately has no
+storage implementation yet; an Android Keystore-backed adapter belongs at the
+application boundary rather than in the framework-independent network module.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in

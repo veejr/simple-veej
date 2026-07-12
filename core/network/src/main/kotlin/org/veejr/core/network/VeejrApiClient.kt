@@ -11,6 +11,14 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.coroutines.executeAsync
 
+interface VeejrApi {
+    suspend fun capabilities(): Capabilities
+    suspend fun login(email: String, password: CharArray, device: DeviceInfo): LoginResponse
+    suspend fun refresh(refreshToken: String): RefreshResponse
+    suspend fun me(accessToken: String): AccountResponse
+    suspend fun logout(accessToken: String)
+}
+
 class VeejrApiClient(
     endpoint: ApiEndpoint,
     baseClient: OkHttpClient = OkHttpClient(),
@@ -18,16 +26,16 @@ class VeejrApiClient(
         ignoreUnknownKeys = true
         explicitNulls = false
     },
-) {
+) : VeejrApi {
     private val baseUrl = endpoint.uri.toString()
     private val client = baseClient.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
 
-    suspend fun capabilities(): Capabilities = get("capabilities")
+    override suspend fun capabilities(): Capabilities = get("capabilities")
 
-    suspend fun login(email: String, password: CharArray, device: DeviceInfo): LoginResponse {
+    override suspend fun login(email: String, password: CharArray, device: DeviceInfo): LoginResponse {
         val request = LoginRequest(email, password.concatToString(), device)
         return try {
             post("auth/login", request)
@@ -36,12 +44,12 @@ class VeejrApiClient(
         }
     }
 
-    suspend fun refresh(refreshToken: String): RefreshResponse =
+    override suspend fun refresh(refreshToken: String): RefreshResponse =
         post("auth/refresh", RefreshRequest(refreshToken))
 
-    suspend fun me(accessToken: String): AccountResponse = get("me", accessToken)
+    override suspend fun me(accessToken: String): AccountResponse = get("me", accessToken)
 
-    suspend fun logout(accessToken: String) {
+    override suspend fun logout(accessToken: String) {
         val request = request("auth/session", accessToken)
             .delete()
             .build()
