@@ -18,6 +18,12 @@ wrapped using the protocol-defined passphrase format. A future device-local
 copy may be additionally protected by Android Keystore but must not replace the
 portable representation.
 
+Session tokens are persisted as a single AES-256-GCM record. The encryption key
+is generated inside Android Keystore and is non-exportable; malformed or
+undecryptable records are discarded. The instance URL is non-secret metadata
+and is stored separately. Selecting a different instance clears the prior token
+record so credentials cannot cross server boundaries.
+
 ## Cryptographic implementation
 
 Protocol-v1 boxes use `org.purejava:tweetnacl-java`. The dependency is a

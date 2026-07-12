@@ -14,6 +14,8 @@ passphrase handling, private keys, encryption, decryption, and plaintext.
 
 Feature modules, Room persistence, synchronization, and dependency injection
 will be added as the first encrypted-messaging vertical slice is implemented.
+The application shell currently owns the instance-selection and authentication
+flow while those boundaries remain small.
 
 ## Dependency direction
 
@@ -44,6 +46,11 @@ rotation, retries an authenticated operation once after a 401, and always
 clears local state during logout. The token-store interface deliberately has no
 storage implementation yet; an Android Keystore-backed adapter belongs at the
 application boundary rather than in the framework-independent network module.
+
+The application starts by restoring the selected instance and encrypted token
+record. A valid session is verified through `/api/v1/me`; otherwise the app
+lands on sign-in with an actionable error. A new instance must advertise API
+v1 capabilities before the app stores it or presents the credential form.
 
 ## Protocol authority
 

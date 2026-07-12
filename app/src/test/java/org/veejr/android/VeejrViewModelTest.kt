@@ -1,0 +1,151 @@
+package org.veejr.android
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Before
+import org.junit.Test
+import org.veejr.core.network.Account
+import org.veejr.core.network.AccountResponse
+import org.veejr.core.network.Capabilities
+import org.veejr.core.network.DeviceInfo
+import org.veejr.core.network.LoginResponse
+import org.veejr.core.network.RefreshResponse
+import org.veejr.core.network.SessionTokens
+import org.veejr.core.network.VeejrApi
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class VeejrViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `fresh install starts at instance selection`() = runTest(dispatcher) {
+        val viewModel = viewModel(FakeStorage(), FakeApi())
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.INSTANCE, viewModel.state.value.screen)
+        assertFalse(viewModel.state.value.loading)
+    }
+
+    @Test
+    fun `compatible instance advances to login and is persisted`() = runTest(dispatcher) {
+        val storage = FakeStorage()
+        val viewModel = viewModel(storage, FakeApi())
+        advanceUntilIdle()
+
+        viewModel.connect("https://chat.example")
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.LOGIN, viewModel.state.value.screen)
+        assertEquals("https://chat.example", storage.endpoint)
+    }
+
+    @Test
+    fun `login persists session and displays account`() = runTest(dispatcher) {
+        val storage = FakeStorage(endpoint = "https://chat.example")
+        val api = FakeApi()
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+
+        viewModel.login("alice@example.test", "secret")
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.HOME, viewModel.state.value.screen)
+        assertSame(ACCOUNT, viewModel.state.value.account)
+        assertSame(TOKENS, storage.tokens)
+    }
+
+    @Test
+    fun `startup restores an existing account`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val viewModel = viewModel(storage, FakeApi())
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.HOME, viewModel.state.value.screen)
+        assertSame(ACCOUNT, viewModel.state.value.account)
+    }
+
+    @Test
+    fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val viewModel = viewModel(storage, FakeApi())
+        advanceUntilIdle()
+
+        viewModel.logout()
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.LOGIN, viewModel.state.value.screen)
+        assertNull(storage.tokens)
+    }
+
+    private fun viewModel(storage: FakeStorage, api: FakeApi) = VeejrViewModel(
+        storage = storage,
+        apiFactory = { api },
+        deviceInfo = { DeviceInfo("Test device", appVersion = "test") },
+    )
+
+    private class FakeStorage(
+        override var endpoint: String? = null,
+        var tokens: SessionTokens? = null,
+    ) : AppSessionStorage {
+        override suspend fun load(): SessionTokens? = tokens
+        override suspend fun save(tokens: SessionTokens) { this.tokens = tokens }
+        override suspend fun clear() { tokens = null }
+    }
+
+    private class FakeApi : VeejrApi {
+        override suspend fun capabilities() = Capabilities(
+            apiVersions = listOf(1),
+            payloadVersions = listOf(1),
+            maxBlobBytes = 1_000_000,
+            messageKinds = listOf("message"),
+            instanceMode = "community",
+            androidPush = false,
+        )
+
+        override suspend fun login(email: String, password: CharArray, device: DeviceInfo) =
+            LoginResponse(ACCOUNT, TOKENS)
+
+        override suspend fun refresh(refreshToken: String) = RefreshResponse(TOKENS)
+        override suspend fun me(accessToken: String) = AccountResponse(ACCOUNT)
+        override suspend fun logout(accessToken: String) = Unit
+    }
+
+    private companion object {
+        val ACCOUNT = Account(
+            id = "42",
+            email = "alice@example.test",
+            username = "alice",
+            displayName = "Alice",
+            handle = "@alice",
+            confirmed = true,
+            keysConfigured = false,
+        )
+        val TOKENS = SessionTokens(
+            accessToken = "access",
+            accessTokenExpiresAt = "2026-07-12T15:00:00Z",
+            refreshToken = "refresh",
+            refreshTokenExpiresAt = "2026-08-12T15:00:00Z",
+            deviceSessionId = "9",
+        )
+    }
+}
