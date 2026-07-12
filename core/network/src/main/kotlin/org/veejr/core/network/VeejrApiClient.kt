@@ -29,6 +29,7 @@ class VeejrApiClient(
     private val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
+        encodeDefaults = true
     },
 ) : VeejrApi {
     private val baseUrl = endpoint.uri.toString()

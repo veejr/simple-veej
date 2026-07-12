@@ -76,6 +76,10 @@ class VeejrApiClientTest {
             "0.1.0-alpha01",
             body.getValue("device").jsonObject.getValue("app_version").jsonPrimitive.content,
         )
+        assertEquals(
+            "android",
+            body.getValue("device").jsonObject.getValue("platform").jsonPrimitive.content,
+        )
     }
 
     @Test
