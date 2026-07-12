@@ -1,0 +1,19 @@
+# Security model
+
+veejr is an early-stage end-to-end encrypted application. Do not rely on this
+client for sensitive data until its protocol implementation and cryptographic
+interoperability have been independently reviewed.
+
+The Android client must never send or log:
+
+- the encryption passphrase;
+- the raw X25519 secret key;
+- decrypted message or attachment content;
+- attachment secretbox keys;
+- access or refresh tokens; or
+- complete capability URLs.
+
+Release builds reject cleartext instance URLs. The portable identity key stays
+wrapped using the protocol-defined passphrase format. A future device-local
+copy may be additionally protected by Android Keystore but must not replace the
+portable representation.
