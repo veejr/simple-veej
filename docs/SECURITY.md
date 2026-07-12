@@ -24,6 +24,12 @@ undecryptable records are discarded. The instance URL is non-secret metadata
 and is stored separately. Selecting a different instance clears the prior token
 record so credentials cannot cross server boundaries.
 
+Identity setup uploads only the public key and the protocol-v1
+passphrase-wrapped secret. Unlock verifies that the recovered secret derives
+the account's advertised public key before accepting it. Neither the
+encryption passphrase nor raw identity secret is placed in saved UI state or
+device persistence.
+
 ## Cryptographic implementation
 
 Protocol-v1 boxes use `org.purejava:tweetnacl-java`. The dependency is a

@@ -19,6 +19,7 @@ import org.veejr.core.network.AccountResponse
 import org.veejr.core.network.Capabilities
 import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.LoginResponse
+import org.veejr.core.network.KeySetupRequest
 import org.veejr.core.network.RefreshResponse
 import org.veejr.core.network.SessionTokens
 import org.veejr.core.network.VeejrApi
@@ -69,19 +70,34 @@ class VeejrViewModelTest {
         viewModel.login("alice@example.test", "secret")
         advanceUntilIdle()
 
-        assertEquals(AppScreen.HOME, viewModel.state.value.screen)
+        assertEquals(AppScreen.KEY_SETUP, viewModel.state.value.screen)
         assertSame(ACCOUNT, viewModel.state.value.account)
         assertSame(TOKENS, storage.tokens)
     }
 
     @Test
-    fun `startup restores an existing account`() = runTest(dispatcher) {
+    fun `startup routes an account without keys to setup`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
         advanceUntilIdle()
 
-        assertEquals(AppScreen.HOME, viewModel.state.value.screen)
+        assertEquals(AppScreen.KEY_SETUP, viewModel.state.value.screen)
         assertSame(ACCOUNT, viewModel.state.value.account)
+    }
+
+    @Test
+    fun `key setup uploads only wrapped material and enters home`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi()
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+        advanceUntilIdle()
+
+        assertEquals(AppScreen.HOME, viewModel.state.value.screen)
+        assertEquals(true, viewModel.state.value.account?.keysConfigured)
+        assertEquals("PBKDF2-SHA256", api.keySetupRequest?.wrappedKey?.kdf?.name)
     }
 
     @Test
@@ -113,6 +129,7 @@ class VeejrViewModelTest {
     }
 
     private class FakeApi : VeejrApi {
+        var keySetupRequest: KeySetupRequest? = null
         override suspend fun capabilities() = Capabilities(
             apiVersions = listOf(1),
             payloadVersions = listOf(1),
@@ -127,6 +144,16 @@ class VeejrViewModelTest {
 
         override suspend fun refresh(refreshToken: String) = RefreshResponse(TOKENS)
         override suspend fun me(accessToken: String) = AccountResponse(ACCOUNT)
+        override suspend fun setupKeys(accessToken: String, request: KeySetupRequest): AccountResponse {
+            keySetupRequest = request
+            return AccountResponse(
+                ACCOUNT.copy(
+                    keysConfigured = true,
+                    publicKey = request.publicKey,
+                    wrappedKey = request.wrappedKey,
+                ),
+            )
+        }
         override suspend fun logout(accessToken: String) = Unit
     }
 

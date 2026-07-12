@@ -146,6 +146,11 @@ class AuthSessionManagerTest {
             return AccountResponse(ACCOUNT)
         }
 
+        override suspend fun setupKeys(
+            accessToken: String,
+            request: KeySetupRequest,
+        ): AccountResponse = AccountResponse(ACCOUNT)
+
         override suspend fun logout(accessToken: String) {
             logoutError?.let { throw it }
         }

@@ -52,6 +52,11 @@ record. A valid session is verified through `/api/v1/me`; otherwise the app
 lands on sign-in with an actionable error. A new instance must advertise API
 v1 capabilities before the app stores it or presents the credential form.
 
+After authentication, accounts without identity keys enter setup; configured
+accounts enter unlock. PBKDF2 and NaCl work runs off the UI thread. The raw
+X25519 secret exists only in ViewModel-owned memory for the active process and
+is zeroed on logout, instance change, failed setup, and ViewModel teardown.
+
 ## Protocol authority
 
 The canonical client protocol is maintained in

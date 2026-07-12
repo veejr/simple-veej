@@ -16,6 +16,7 @@ interface VeejrApi {
     suspend fun login(email: String, password: CharArray, device: DeviceInfo): LoginResponse
     suspend fun refresh(refreshToken: String): RefreshResponse
     suspend fun me(accessToken: String): AccountResponse
+    suspend fun setupKeys(accessToken: String, request: KeySetupRequest): AccountResponse
     suspend fun logout(accessToken: String)
 }
 
@@ -49,6 +50,11 @@ class VeejrApiClient(
 
     override suspend fun me(accessToken: String): AccountResponse = get("me", accessToken)
 
+    override suspend fun setupKeys(
+        accessToken: String,
+        request: KeySetupRequest,
+    ): AccountResponse = put("keys", request, accessToken)
+
     override suspend fun logout(accessToken: String) {
         val request = request("auth/session", accessToken)
             .delete()
@@ -67,6 +73,17 @@ class VeejrApiClient(
     ): ResponseType {
         val request = request(path)
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        return execute(request)
+    }
+
+    private suspend inline fun <reified RequestType, reified ResponseType> put(
+        path: String,
+        body: RequestType,
+        accessToken: String,
+    ): ResponseType {
+        val request = request(path, accessToken)
+            .put(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
         return execute(request)
     }

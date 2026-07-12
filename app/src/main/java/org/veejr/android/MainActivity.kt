@@ -76,6 +76,8 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onLogin = viewModel::login,
                             onChangeInstance = viewModel::changeInstance,
                         )
+                        AppScreen.KEY_SETUP -> KeySetupScreen(state, viewModel::setupIdentity)
+                        AppScreen.KEY_UNLOCK -> KeyUnlockScreen(state, viewModel::unlockIdentity)
                         AppScreen.HOME -> HomeScreen(
                             state = state,
                             onLogout = viewModel::logout,
@@ -96,6 +98,86 @@ fun VeejrApp(viewModel: VeejrViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun KeySetupScreen(state: AppUiState, onSetup: (String, String) -> Unit) {
+    var passphrase by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    AppCard {
+        BrandHeader("Create encryption keys", "Only you can unlock your conversations.")
+        Text(
+            text = "Choose a separate passphrase with at least 8 characters. It never leaves this device, and it cannot be recovered.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        Spacer(Modifier.height(18.dp))
+        SecretField("Encryption passphrase", passphrase, { passphrase = it }, state.loading)
+        Spacer(Modifier.height(12.dp))
+        SecretField("Confirm passphrase", confirmation, { confirmation = it }, state.loading)
+        ErrorText(state.error)
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = {
+                onSetup(passphrase, confirmation)
+                passphrase = ""
+                confirmation = ""
+            },
+            enabled = passphrase.length >= IdentityCoordinator.MIN_PASSPHRASE_LENGTH &&
+                confirmation.isNotEmpty() && !state.loading,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Text("Generate keys")
+        }
+    }
+}
+
+@Composable
+private fun KeyUnlockScreen(state: AppUiState, onUnlock: (String) -> Unit) {
+    var passphrase by remember { mutableStateOf("") }
+    AppCard {
+        BrandHeader("Unlock your conversations", state.account?.handle.orEmpty())
+        Text(
+            text = "Your encrypted identity came from ${state.endpoint.removePrefix("https://")}. The passphrase is processed only on this device.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        Spacer(Modifier.height(18.dp))
+        SecretField("Encryption passphrase", passphrase, { passphrase = it }, state.loading)
+        ErrorText(state.error)
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = {
+                onUnlock(passphrase)
+                passphrase = ""
+            },
+            enabled = passphrase.isNotEmpty() && !state.loading,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Text("Unlock")
+        }
+    }
+}
+
+@Composable
+private fun SecretField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    loading: Boolean,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        singleLine = true,
+        enabled = !loading,
+    )
 }
 
 @Composable

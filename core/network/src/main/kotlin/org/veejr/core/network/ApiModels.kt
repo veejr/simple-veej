@@ -75,6 +75,12 @@ data class RefreshResponse(val tokens: SessionTokens)
 data class AccountResponse(val account: Account)
 
 @Serializable
+data class KeySetupRequest(
+    @SerialName("public_key") val publicKey: String,
+    @SerialName("wrapped_key") val wrappedKey: WrappedKey,
+)
+
+@Serializable
 data class ApiError(
     val code: String,
     val message: String,

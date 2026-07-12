@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.veejr.core.network.Account
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
@@ -17,7 +19,7 @@ import org.veejr.core.network.VeejrApi
 import org.veejr.core.network.VeejrApiClient
 import org.veejr.core.network.VeejrApiException
 
-enum class AppScreen { INSTANCE, LOGIN, HOME }
+enum class AppScreen { INSTANCE, LOGIN, KEY_SETUP, KEY_UNLOCK, HOME }
 
 data class AppUiState(
     val screen: AppScreen = AppScreen.INSTANCE,
@@ -30,6 +32,7 @@ data class AppUiState(
 class VeejrViewModel(
     private val storage: AppSessionStorage,
     private val apiFactory: (ApiEndpoint) -> VeejrApi = ::VeejrApiClient,
+    private val identityCoordinator: IdentityCoordinator = IdentityCoordinator(),
     private val deviceInfo: () -> DeviceInfo = {
         DeviceInfo(
             name = android.os.Build.MODEL.ifBlank { "Android device" },
@@ -40,6 +43,7 @@ class VeejrViewModel(
     private val mutableState = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
     private var sessionManager: AuthSessionManager? = null
+    private var identitySecret: ByteArray? = null
 
     init {
         restoreSession()
@@ -79,9 +83,7 @@ class VeejrViewModel(
                 password = passwordChars,
                 device = deviceInfo(),
             )
-            mutableState.update {
-                it.copy(screen = AppScreen.HOME, account = account, loading = false)
-            }
+            showAccount(account)
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error, loginAttempt = true)) }
         } finally {
@@ -92,6 +94,7 @@ class VeejrViewModel(
     fun logout() = viewModelScope.launch {
         mutableState.update { it.copy(loading = true, error = null) }
         runCatching { sessionManager?.logout() }
+        clearIdentity()
         mutableState.update {
             it.copy(screen = AppScreen.LOGIN, account = null, loading = false)
         }
@@ -102,7 +105,58 @@ class VeejrViewModel(
         storage.clear()
         storage.endpoint = null
         sessionManager = null
+        clearIdentity()
         mutableState.value = AppUiState(loading = false)
+    }
+
+    fun setupIdentity(passphrase: String, confirmation: String) = viewModelScope.launch {
+        if (passphrase != confirmation) {
+            mutableState.update { it.copy(error = "The passphrases do not match.") }
+            return@launch
+        }
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        val chars = passphrase.toCharArray()
+        var prepared: PreparedIdentity? = null
+        try {
+            prepared = withContext(Dispatchers.Default) { identityCoordinator.prepare(chars) }
+            val account = manager.setupKeys(prepared.request)
+            clearIdentity()
+            identitySecret = prepared.secretKey
+            prepared = null
+            mutableState.update {
+                it.copy(screen = AppScreen.HOME, account = account, loading = false)
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        } finally {
+            prepared?.secretKey?.fill(0)
+            chars.fill('\u0000')
+        }
+    }
+
+    fun unlockIdentity(passphrase: String) = viewModelScope.launch {
+        val account = mutableState.value.account ?: return@launch
+        val publicKey = account.publicKey ?: return@launch
+        val wrappedKey = account.wrappedKey ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        val chars = passphrase.toCharArray()
+        try {
+            val secret = withContext(Dispatchers.Default) {
+                identityCoordinator.unlock(publicKey, wrappedKey, chars)
+            }
+            if (secret == null) {
+                mutableState.update {
+                    it.copy(loading = false, error = "That encryption passphrase is not correct.")
+                }
+            } else {
+                clearIdentity()
+                identitySecret = secret
+                mutableState.update { it.copy(screen = AppScreen.HOME, loading = false) }
+            }
+        } finally {
+            chars.fill('\u0000')
+        }
     }
 
     fun dismissError() = mutableState.update { it.copy(error = null) }
@@ -123,12 +177,7 @@ class VeejrViewModel(
                 return@launch
             }
             val account = manager.currentAccount()
-            mutableState.value = AppUiState(
-                screen = AppScreen.HOME,
-                endpoint = storedEndpoint,
-                account = account,
-                loading = false,
-            )
+            showAccount(account)
         } catch (error: Exception) {
             mutableState.value = AppUiState(
                 screen = AppScreen.LOGIN,
@@ -151,6 +200,25 @@ class VeejrViewModel(
         is IOException -> "The instance could not be reached. Check your connection and try again."
         is IllegalArgumentException -> error.message ?: "That instance URL is not valid."
         else -> "Something went wrong. Please try again."
+    }
+
+    private fun showAccount(account: Account) {
+        mutableState.value = AppUiState(
+            screen = if (account.keysConfigured) AppScreen.KEY_UNLOCK else AppScreen.KEY_SETUP,
+            endpoint = storage.endpoint.orEmpty(),
+            account = account,
+            loading = false,
+        )
+    }
+
+    private fun clearIdentity() {
+        identitySecret?.fill(0)
+        identitySecret = null
+    }
+
+    override fun onCleared() {
+        clearIdentity()
+        super.onCleared()
     }
 
     class Factory(private val storage: AppSessionStorage) : ViewModelProvider.Factory {

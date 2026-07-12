@@ -104,6 +104,34 @@ class VeejrApiClientTest {
     }
 
     @Test
+    fun `uploads portable identity material with bearer authentication`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse(CONFIGURED_ME_JSON, "Cache-Control" to "no-store"))
+        val wrapped = WrappedKey(
+            ciphertext = "wrapped-secret",
+            salt = "salt",
+            nonce = "nonce",
+            kdf = WrappedKeyKdf("PBKDF2-SHA256", 310_000),
+            wrap = "XSalsa20-Poly1305",
+        )
+
+        val account = api.setupKeys("access-secret", KeySetupRequest("public-key", wrapped)).account
+
+        assertTrue(account.keysConfigured)
+        val request = server.takeRequest()
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("PUT", request.method)
+        assertEquals("/api/v1/keys", request.path)
+        assertEquals("Bearer access-secret", request.getHeader("Authorization"))
+        assertEquals("public-key", body.getValue("public_key").jsonPrimitive.content)
+        assertEquals(
+            "310000",
+            body.getValue("wrapped_key").jsonObject
+                .getValue("kdf").jsonObject
+                .getValue("iterations").jsonPrimitive.content,
+        )
+    }
+
+    @Test
     fun `decodes stable API errors without exposing response bodies`() {
         server.enqueue(
             MockResponse()
@@ -200,6 +228,28 @@ class VeejrApiClientTest {
                 "keys_configured": false,
                 "public_key": null,
                 "wrapped_key": null
+              }
+            }
+        """
+
+        const val CONFIGURED_ME_JSON = """
+            {
+              "account": {
+                "id": "42",
+                "email": "alice@example.test",
+                "username": "alice",
+                "display_name": "Alice",
+                "handle": "@alice",
+                "confirmed": true,
+                "keys_configured": true,
+                "public_key": "public-key",
+                "wrapped_key": {
+                  "ciphertext": "wrapped-secret",
+                  "salt": "salt",
+                  "nonce": "nonce",
+                  "kdf": {"name": "PBKDF2-SHA256", "iterations": 310000},
+                  "wrap": "XSalsa20-Poly1305"
+                }
               }
             }
         """

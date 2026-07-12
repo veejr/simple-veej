@@ -26,6 +26,9 @@ class AuthSessionManager(
     suspend fun currentAccount(): Account =
         withAccessToken { accessToken -> api.me(accessToken).account }
 
+    suspend fun setupKeys(request: KeySetupRequest): Account =
+        withAccessToken { accessToken -> api.setupKeys(accessToken, request).account }
+
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 
     suspend fun logout() {
