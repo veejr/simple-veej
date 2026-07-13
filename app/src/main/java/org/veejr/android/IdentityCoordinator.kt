@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.veejr.core.crypto.CryptoBoundary
@@ -23,6 +24,11 @@ import org.veejr.core.network.WrappedKeyKdf
 data class PreparedIdentity(
     val request: KeySetupRequest,
     val secretKey: ByteArray,
+)
+
+data class OpenedMessage(
+    val text: String,
+    val recipientHandles: List<String>,
 )
 
 class IdentityCoordinator(
@@ -87,7 +93,10 @@ class IdentityCoordinator(
         }.getOrNull()
     }
 
-    fun openMessage(envelope: Envelope, secretKey: ByteArray): String? = runCatching {
+    fun openMessage(envelope: Envelope, secretKey: ByteArray): String? =
+        openMessagePayload(envelope, secretKey)?.text
+
+    fun openMessagePayload(envelope: Envelope, secretKey: ByteArray): OpenedMessage? = runCatching {
         val plaintext = crypto.openBox(
             ciphertext = envelope.ciphertext.base64BytesAtLeast(16),
             nonce = envelope.nonce.base64Bytes(CryptoBoundary.NONCE_BYTES),
@@ -99,7 +108,18 @@ class IdentityCoordinator(
             if (
                 payload["v"]?.jsonPrimitive?.content != "1" ||
                 payload["kind"]?.jsonPrimitive?.content != "message"
-            ) null else payload["text"]?.jsonPrimitive?.content?.takeIf(String::isNotEmpty)
+            ) {
+                null
+            } else {
+                payload["text"]?.jsonPrimitive?.content?.takeIf(String::isNotEmpty)?.let { text ->
+                    OpenedMessage(
+                        text = text,
+                        recipientHandles = payload["to"]?.jsonArray
+                            ?.map { it.jsonPrimitive.content }
+                            .orEmpty(),
+                    )
+                }
+            }
         } finally {
             plaintext.fill(0)
         }

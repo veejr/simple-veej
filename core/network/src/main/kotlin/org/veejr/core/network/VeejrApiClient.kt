@@ -23,6 +23,12 @@ interface VeejrApi {
     suspend fun contacts(accessToken: String): ContactsResponse
     suspend fun groups(accessToken: String): GroupsResponse
     suspend fun messageDeliveryPolicies(accessToken: String): MessageDeliveryPoliciesResponse
+    suspend fun putPrivateNote(
+        accessToken: String,
+        subjectType: String,
+        subjectId: String,
+        request: PrivateNoteRequest,
+    ): PrivateNoteResponse
     suspend fun putMessageDeliveryPolicy(
         accessToken: String,
         subjectType: String,
@@ -103,6 +109,17 @@ class VeejrApiClient(
     override suspend fun messageDeliveryPolicies(
         accessToken: String,
     ): MessageDeliveryPoliciesResponse = get("message-delivery-policies", accessToken)
+
+    override suspend fun putPrivateNote(
+        accessToken: String,
+        subjectType: String,
+        subjectId: String,
+        request: PrivateNoteRequest,
+    ): PrivateNoteResponse = put(
+        "${policyPath(subjectType)}/$subjectId/note",
+        request,
+        accessToken,
+    )
 
     override suspend fun putMessageDeliveryPolicy(
         accessToken: String,

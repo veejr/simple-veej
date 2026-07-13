@@ -166,6 +166,13 @@ class AuthSessionManagerTest {
         override suspend fun messageDeliveryPolicies(accessToken: String) =
             MessageDeliveryPoliciesResponse(emptyList())
 
+        override suspend fun putPrivateNote(
+            accessToken: String,
+            subjectType: String,
+            subjectId: String,
+            request: PrivateNoteRequest,
+        ): PrivateNoteResponse = error("not used")
+
         override suspend fun putMessageDeliveryPolicy(
             accessToken: String,
             subjectType: String,

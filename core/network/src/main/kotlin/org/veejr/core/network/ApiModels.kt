@@ -131,6 +131,7 @@ data class Recipient(
     val handle: String,
     @SerialName("public_key") val publicKey: String,
     @SerialName("auto_accept") val autoAccept: Boolean = false,
+    val note: String = "",
 )
 
 @Serializable
@@ -164,10 +165,20 @@ data class ContactGroup(
     val id: String,
     val name: String,
     val members: List<GroupMemberSummary>,
+    val note: String = "",
 )
 
 @Serializable
 data class GroupsResponse(val groups: List<ContactGroup>)
+
+@Serializable
+data class PrivateNoteRequest(val body: String)
+
+@Serializable
+data class PrivateNote(@SerialName("subject_id") val subjectId: String, val body: String)
+
+@Serializable
+data class PrivateNoteResponse(val note: PrivateNote)
 
 @Serializable
 data class ResolveRecipientsRequest(

@@ -24,6 +24,9 @@ import org.veejr.core.network.EnvelopeResponse
 import org.veejr.core.network.EnvelopePage
 import org.veejr.core.network.NotificationsResponse
 import org.veejr.core.network.PendingNotification
+import org.veejr.core.network.PrivateNoteRequest
+import org.veejr.core.network.PrivateNote
+import org.veejr.core.network.PrivateNoteResponse
 import org.veejr.core.network.SenderSummary
 import org.veejr.core.network.ContactsResponse
 import org.veejr.core.network.GroupsResponse
@@ -173,6 +176,20 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `private contact note updates local expandable configuration data`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val contact = Recipient("7", "bob", "@bob", "key")
+        val api = FakeApi().apply { contacts = listOf(contact) }
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+
+        viewModel.savePrivateNote("contact", contact.id, "Met in Berlin").join()
+
+        assertEquals("Met in Berlin", viewModel.state.value.contacts.single().note)
+    }
+
+    @Test
     fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
@@ -248,6 +265,21 @@ class VeejrViewModelTest {
 
         override suspend fun messageDeliveryPolicies(accessToken: String) =
             MessageDeliveryPoliciesResponse(policies)
+
+        override suspend fun putPrivateNote(
+            accessToken: String,
+            subjectType: String,
+            subjectId: String,
+            request: PrivateNoteRequest,
+        ): PrivateNoteResponse {
+            val note = PrivateNote(subjectId, request.body)
+            if (subjectType == "contact") {
+                contacts = contacts.map {
+                    if (it.id == subjectId) it.copy(note = request.body) else it
+                }
+            }
+            return PrivateNoteResponse(note)
+        }
 
         override suspend fun putMessageDeliveryPolicy(
             accessToken: String,

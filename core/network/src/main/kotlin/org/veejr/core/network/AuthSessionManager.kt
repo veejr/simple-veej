@@ -47,6 +47,16 @@ class AuthSessionManager(
     suspend fun messageDeliveryPolicies(): List<MessageDeliveryPolicy> =
         withAccessToken { accessToken -> api.messageDeliveryPolicies(accessToken).policies }
 
+    suspend fun savePrivateNote(subjectType: String, subjectId: String, body: String): PrivateNote =
+        withAccessToken { accessToken ->
+            api.putPrivateNote(
+                accessToken,
+                subjectType,
+                subjectId,
+                PrivateNoteRequest(body),
+            ).note
+        }
+
     suspend fun setDeliveryPolicy(
         subjectType: String,
         subjectId: String,
@@ -66,9 +76,15 @@ class AuthSessionManager(
             }
         }
 
-    suspend fun resolveRecipients(friendId: String): ResolveRecipientsResponse =
+    suspend fun resolveRecipients(subjectType: String, subjectId: String): ResolveRecipientsResponse =
         withAccessToken { accessToken ->
-            api.resolveRecipients(accessToken, ResolveRecipientsRequest(friendIds = listOf(friendId)))
+            api.resolveRecipients(
+                accessToken,
+                ResolveRecipientsRequest(
+                    friendIds = if (subjectType == "contact") listOf(subjectId) else emptyList(),
+                    groupIds = if (subjectType == "group") listOf(subjectId) else emptyList(),
+                ),
+            )
         }
 
     suspend fun sendMessageBatch(

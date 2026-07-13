@@ -46,6 +46,8 @@ data class InboxMessage(
     val senderHandle: String,
     val text: String,
     val createdAt: String,
+    val recipientHandles: List<String> = emptyList(),
+    val sentByMe: Boolean = false,
 )
 
 class VeejrViewModel(
@@ -204,10 +206,10 @@ class VeejrViewModel(
         mutableState.update { it.copy(loading = true, error = null) }
         try {
             val envelope = manager.acceptNotification(id)
-            val text = withContext(Dispatchers.Default) {
-                identityCoordinator.openMessage(envelope, secret)
+            val opened = withContext(Dispatchers.Default) {
+                identityCoordinator.openMessagePayload(envelope, secret)
             }
-            if (text == null) {
+            if (opened == null) {
                 mutableState.update {
                     it.copy(
                         loading = false,
@@ -219,8 +221,10 @@ class VeejrViewModel(
                 val message = InboxMessage(
                     publicId = envelope.publicId,
                     senderHandle = envelope.sender.handle,
-                    text = text,
+                    text = opened.text,
                     createdAt = envelope.createdAt,
+                    recipientHandles = opened.recipientHandles,
+                    sentByMe = envelope.sentByMe,
                 )
                 mutableState.update {
                     it.copy(
@@ -251,12 +255,12 @@ class VeejrViewModel(
         }
     }
 
-    fun sendMessage(friendId: String, text: String) = viewModelScope.launch {
+    fun sendMessage(subjectType: String, subjectId: String, text: String) = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
         val secret = identitySecret ?: return@launch
         mutableState.update { it.copy(loading = true, error = null) }
         try {
-            val resolved = manager.resolveRecipients(friendId)
+            val resolved = manager.resolveRecipients(subjectType, subjectId)
             require(resolved.missingKeys.isEmpty()) { "A recipient has not configured encryption keys." }
             require(resolved.recipients.size >= 2) { "The recipient is no longer available." }
             val envelopes = withContext(Dispatchers.Default) {
@@ -268,9 +272,40 @@ class VeejrViewModel(
                 senderHandle = "You",
                 text = text.trim(),
                 createdAt = java.time.Instant.now().toString(),
+                recipientHandles = resolved.recipients.map { it.handle },
+                sentByMe = true,
             )
             mutableState.update {
                 it.copy(loading = false, messages = listOf(message) + it.messages)
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
+    }
+
+    fun savePrivateNote(subjectType: String, subjectId: String, body: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        try {
+            val note = manager.savePrivateNote(subjectType, subjectId, body)
+            mutableState.update {
+                it.copy(
+                    loading = false,
+                    contacts = it.contacts.map { contact ->
+                        if (subjectType == "contact" && contact.id == note.subjectId) {
+                            contact.copy(note = note.body)
+                        } else {
+                            contact
+                        }
+                    },
+                    groups = it.groups.map { group ->
+                        if (subjectType == "group" && group.id == note.subjectId) {
+                            group.copy(note = note.body)
+                        } else {
+                            group
+                        }
+                    },
+                )
             }
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
@@ -368,12 +403,14 @@ class VeejrViewModel(
             val history = manager.messageHistory()
             val messages = withContext(Dispatchers.Default) {
                 history.envelopes.mapNotNull { envelope ->
-                    identityCoordinator.openMessage(envelope, secret)?.let { text ->
+                    identityCoordinator.openMessagePayload(envelope, secret)?.let { opened ->
                         InboxMessage(
                             publicId = envelope.publicId,
                             senderHandle = if (envelope.sentByMe) "You" else envelope.sender.handle,
-                            text = text,
+                            text = opened.text,
                             createdAt = envelope.createdAt,
+                            recipientHandles = opened.recipientHandles,
+                            sentByMe = envelope.sentByMe,
                         )
                     }
                 }

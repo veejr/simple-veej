@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +51,9 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import kotlinx.coroutines.delay
 
 private enum class HomeTab(val title: String, val icon: ImageVector) {
@@ -58,6 +63,13 @@ private enum class HomeTab(val title: String, val icon: ImageVector) {
     ACCOUNT("Account", Icons.Outlined.Settings),
 }
 
+private data class ConversationTarget(
+    val subjectType: String,
+    val id: String,
+    val title: String,
+    val memberHandles: Set<String>,
+)
+
 @Composable
 fun HomeScreen(
     state: AppUiState,
@@ -65,12 +77,29 @@ fun HomeScreen(
     onDecline: (String) -> Unit,
     onRefresh: () -> Unit,
     onSync: () -> Unit,
-    onSend: (String, String) -> Unit,
+    onSend: (String, String, String) -> Unit,
     onSetDeliveryPolicy: (String, String, String?) -> Unit,
+    onSavePrivateNote: (String, String, String) -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.INBOX) }
+    var conversationType by rememberSaveable { mutableStateOf<String?>(null) }
+    var conversationId by rememberSaveable { mutableStateOf<String?>(null) }
+    val conversation = when (conversationType) {
+        "contact" -> state.contacts.firstOrNull { it.id == conversationId }?.let {
+            ConversationTarget("contact", it.id, it.handle, setOf(it.handle))
+        }
+        "group" -> state.groups.firstOrNull { it.id == conversationId }?.let {
+            ConversationTarget("group", it.id, it.name, it.members.map { member -> member.handle }.toSet())
+        }
+        else -> null
+    }
+    val openConversation: (String, String) -> Unit = { type, id ->
+        conversationType = type
+        conversationId = id
+        tab = HomeTab.INBOX
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -81,7 +110,12 @@ fun HomeScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { MobileTopBar(tab, state, onRefresh) },
+        topBar = {
+            MobileTopBar(tab, state, conversation, onRefresh) {
+                conversationType = null
+                conversationId = null
+            }
+        },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 HomeTab.entries.forEach { item ->
@@ -103,16 +137,34 @@ fun HomeScreen(
         },
     ) { padding ->
         when (tab) {
-            HomeTab.INBOX -> InboxScreen(state, padding, onAccept, onDecline, onSend)
-            HomeTab.CONTACTS -> ContactsScreen(state, padding, onSetDeliveryPolicy)
-            HomeTab.GROUPS -> GroupsScreen(state, padding, onSetDeliveryPolicy)
+            HomeTab.INBOX -> InboxScreen(state, conversation, padding, onAccept, onDecline, onSend)
+            HomeTab.CONTACTS -> ContactsScreen(
+                state,
+                padding,
+                onSetDeliveryPolicy,
+                onSavePrivateNote,
+                openConversation,
+            )
+            HomeTab.GROUPS -> GroupsScreen(
+                state,
+                padding,
+                onSetDeliveryPolicy,
+                onSavePrivateNote,
+                openConversation,
+            )
             HomeTab.ACCOUNT -> AccountScreen(state, padding, onLogout, onChangeInstance)
         }
     }
 }
 
 @Composable
-private fun MobileTopBar(tab: HomeTab, state: AppUiState, onRefresh: () -> Unit) {
+private fun MobileTopBar(
+    tab: HomeTab,
+    state: AppUiState,
+    conversation: ConversationTarget?,
+    onRefresh: () -> Unit,
+    onBackConversation: () -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.primary, shadowElevation = 4.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
@@ -120,23 +172,40 @@ private fun MobileTopBar(tab: HomeTab, state: AppUiState, onRefresh: () -> Unit)
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f)) {
-                    Text(
-                        "v",
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Black,
-                    )
+                if (tab == HomeTab.INBOX && conversation != null) {
+                    IconButton(onClick = onBackConversation) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "All messages",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                } else {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f)) {
+                        Text(
+                            "v",
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
                 }
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(
-                        if (tab == HomeTab.INBOX) "veejr" else tab.title,
+                        conversation?.title?.takeIf { tab == HomeTab.INBOX }
+                            ?: if (tab == HomeTab.INBOX) "veejr" else tab.title,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Text(
-                        if (tab == HomeTab.INBOX) "Inbox · ${state.account?.handle.orEmpty()}" else state.account?.handle.orEmpty(),
+                        if (tab == HomeTab.INBOX && conversation != null) {
+                            "Encrypted ${conversation.subjectType} conversation"
+                        } else if (tab == HomeTab.INBOX) {
+                            "Inbox · ${state.account?.handle.orEmpty()}"
+                        } else {
+                            state.account?.handle.orEmpty()
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
                     )
@@ -158,15 +227,28 @@ private fun MobileTopBar(tab: HomeTab, state: AppUiState, onRefresh: () -> Unit)
 @Composable
 private fun InboxScreen(
     state: AppUiState,
+    conversation: ConversationTarget?,
     padding: PaddingValues,
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
-    onSend: (String, String) -> Unit,
+    onSend: (String, String, String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedContact = state.contacts.firstOrNull { it.id == selectedContactId }
         ?: state.contacts.firstOrNull()
+    val visibleMessages = if (conversation == null) {
+        state.messages
+    } else {
+        state.messages.filter { message ->
+            if (message.sentByMe) {
+                conversation.memberHandles.isNotEmpty() &&
+                    conversation.memberHandles.all(message.recipientHandles::contains)
+            } else {
+                message.senderHandle in conversation.memberHandles
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
@@ -190,13 +272,25 @@ private fun InboxScreen(
         }
 
         item {
-            SectionHeading("Messages", "End-to-end encrypted · plaintext stays on this device")
+            SectionHeading(
+                conversation?.title ?: "Messages",
+                "End-to-end encrypted · plaintext stays on this device",
+            )
         }
 
-        if (state.messages.isEmpty()) {
-            item { EmptyState("No messages yet", "Choose a contact below and start a private conversation.") }
+        if (visibleMessages.isEmpty()) {
+            item {
+                EmptyState(
+                    "No messages yet",
+                    if (conversation == null) {
+                        "Choose a contact below and start a private conversation."
+                    } else {
+                        "Send the first encrypted message to ${conversation.title}."
+                    },
+                )
+            }
         } else {
-            items(state.messages, key = { it.publicId }) { message -> MessageBubble(message) }
+            items(visibleMessages, key = { it.publicId }) { message -> MessageBubble(message) }
         }
 
         item {
@@ -208,26 +302,35 @@ private fun InboxScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text("New message", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    if (state.contacts.isEmpty()) {
+                    if (conversation == null && state.contacts.isEmpty()) {
                         Text(
                             "Add an accepted friend in the server app to begin.",
                             modifier = Modifier.padding(top = 8.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            state.contacts.take(3).forEach { contact ->
-                                FilterChip(
-                                    selected = selectedContact?.id == contact.id,
-                                    onClick = { selectedContactId = contact.id },
-                                    label = {
-                                        Text(contact.handle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    },
-                                )
+                        if (conversation == null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                state.contacts.take(3).forEach { contact ->
+                                    FilterChip(
+                                        selected = selectedContact?.id == contact.id,
+                                        onClick = { selectedContactId = contact.id },
+                                        label = {
+                                            Text(contact.handle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        },
+                                    )
+                                }
                             }
+                        } else {
+                            Text(
+                                "To ${conversation.title}",
+                                modifier = Modifier.padding(top = 8.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                         OutlinedTextField(
                             value = draft,
@@ -240,13 +343,18 @@ private fun InboxScreen(
                         )
                         Button(
                             onClick = {
-                                selectedContact?.let { onSend(it.id, draft) }
+                                if (conversation != null) {
+                                    onSend(conversation.subjectType, conversation.id, draft)
+                                } else {
+                                    selectedContact?.let { onSend("contact", it.id, draft) }
+                                }
                                 draft = ""
                             },
                             modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
-                            enabled = selectedContact != null && draft.isNotBlank() && !state.loading,
+                            enabled = (conversation != null || selectedContact != null) &&
+                                draft.isNotBlank() && !state.loading,
                         ) {
-                            Text("Send to ${selectedContact?.handle.orEmpty()}")
+                            Text("Send to ${conversation?.title ?: selectedContact?.handle.orEmpty()}")
                         }
                     }
                 }
@@ -262,7 +370,10 @@ private fun ContactsScreen(
     state: AppUiState,
     padding: PaddingValues,
     onSetDeliveryPolicy: (String, String, String?) -> Unit,
+    onSavePrivateNote: (String, String, String) -> Unit,
+    onOpenConversation: (String, String) -> Unit,
 ) {
+    var expandedIds by remember { mutableStateOf(emptySet<String>()) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
@@ -282,26 +393,50 @@ private fun ContactsScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(contact.handle)
-                        Column(Modifier.padding(start = 12.dp)) {
-                            Text(contact.handle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                if (contact.autoAccept) "Effective: Auto accept" else "Effective: Ask first",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
+                        Row(
+                            modifier = Modifier.weight(1f).clickable {
+                                onOpenConversation("contact", contact.id)
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Avatar(contact.handle)
+                            Column(Modifier.padding(start = 12.dp)) {
+                                Text(contact.handle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (contact.autoAccept) "Effective: Auto accept" else "Effective: Ask first",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            expandedIds = if (contact.id in expandedIds) {
+                                expandedIds - contact.id
+                            } else {
+                                expandedIds + contact.id
+                            }
+                        }) {
+                            Icon(
+                                if (contact.id in expandedIds) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                contentDescription = "Contact settings",
                             )
                         }
                     }
-                    DeliveryPolicySelector(
-                        "Contact default",
-                        state.policyAcceptance("contact", contact.id),
-                        !state.loading,
-                    ) { onSetDeliveryPolicy("contact", contact.id, it) }
-                    DeliveryPolicySelector(
-                        "Conversation override",
-                        state.policyAcceptance("conversation", contact.id),
-                        !state.loading,
-                    ) { onSetDeliveryPolicy("conversation", contact.id, it) }
+                    if (contact.id in expandedIds) {
+                        DeliveryPolicySelector(
+                            "Contact default",
+                            state.policyAcceptance("contact", contact.id),
+                            !state.loading,
+                        ) { onSetDeliveryPolicy("contact", contact.id, it) }
+                        DeliveryPolicySelector(
+                            "Conversation override",
+                            state.policyAcceptance("conversation", contact.id),
+                            !state.loading,
+                        ) { onSetDeliveryPolicy("conversation", contact.id, it) }
+                        PrivateNoteEditor(contact.note, !state.loading) {
+                            onSavePrivateNote("contact", contact.id, it)
+                        }
+                    }
                 }
             }
         }
@@ -314,7 +449,10 @@ private fun GroupsScreen(
     state: AppUiState,
     padding: PaddingValues,
     onSetDeliveryPolicy: (String, String, String?) -> Unit,
+    onSavePrivateNote: (String, String, String) -> Unit,
+    onOpenConversation: (String, String) -> Unit,
 ) {
+    var expandedIds by remember { mutableStateOf(emptySet<String>()) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
@@ -331,18 +469,43 @@ private fun GroupsScreen(
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        group.members.joinToString { it.handle }.ifBlank { "No members" },
-                        modifier = Modifier.padding(top = 3.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    DeliveryPolicySelector(
-                        "Incoming message policy",
-                        state.policyAcceptance("group", group.id),
-                        !state.loading,
-                    ) { onSetDeliveryPolicy("group", group.id, it) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(
+                            modifier = Modifier.weight(1f).clickable {
+                                onOpenConversation("group", group.id)
+                            },
+                        ) {
+                            Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                group.members.joinToString { it.handle }.ifBlank { "No members" },
+                                modifier = Modifier.padding(top = 3.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = {
+                            expandedIds = if (group.id in expandedIds) {
+                                expandedIds - group.id
+                            } else {
+                                expandedIds + group.id
+                            }
+                        }) {
+                            Icon(
+                                if (group.id in expandedIds) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                contentDescription = "Group settings",
+                            )
+                        }
+                    }
+                    if (group.id in expandedIds) {
+                        DeliveryPolicySelector(
+                            "Incoming message policy",
+                            state.policyAcceptance("group", group.id),
+                            !state.loading,
+                        ) { onSetDeliveryPolicy("group", group.id, it) }
+                        PrivateNoteEditor(group.note, !state.loading) {
+                            onSavePrivateNote("group", group.id, it)
+                        }
+                    }
                 }
             }
         }
@@ -428,6 +591,42 @@ private fun DeliveryPolicySelector(
                 label = { Text(title) },
                 enabled = enabled,
             )
+        }
+    }
+}
+
+@Composable
+private fun PrivateNoteEditor(
+    initialBody: String,
+    enabled: Boolean,
+    onSave: (String) -> Unit,
+) {
+    var body by remember(initialBody) { mutableStateOf(initialBody) }
+    Text(
+        "Private note",
+        modifier = Modifier.padding(top = 14.dp),
+        style = MaterialTheme.typography.labelLarge,
+    )
+    Text(
+        "Stored on your server · not end-to-end encrypted",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    OutlinedTextField(
+        value = body,
+        onValueChange = { body = it },
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        placeholder = { Text("Add context only you can see…") },
+        minLines = 2,
+        maxLines = 4,
+        enabled = enabled,
+    )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(
+            onClick = { onSave(body) },
+            enabled = enabled && body != initialBody,
+        ) {
+            Text("Save note")
         }
     }
 }

@@ -92,6 +92,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onSync = viewModel::syncInbox,
                             onSend = viewModel::sendMessage,
                             onSetDeliveryPolicy = viewModel::setDeliveryPolicy,
+                            onSavePrivateNote = viewModel::savePrivateNote,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )

@@ -185,6 +185,26 @@ class VeejrApiClientTest {
     }
 
     @Test
+    fun `stores a caller owned contact note`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse(NOTE_JSON))
+
+        val response = api.putPrivateNote(
+            "access-secret",
+            "contact",
+            "7",
+            PrivateNoteRequest("Met in Berlin"),
+        )
+
+        assertEquals("Met in Berlin", response.note.body)
+        server.takeRequest().also { request ->
+            assertEquals("PUT", request.method)
+            assertEquals("/api/v1/contacts/7/note", request.path)
+            val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+            assertEquals("Met in Berlin", body.getValue("body").jsonPrimitive.content)
+        }
+    }
+
+    @Test
     fun `decodes stable API errors without exposing response bodies`() {
         server.enqueue(
             MockResponse()
@@ -358,6 +378,10 @@ class VeejrApiClientTest {
                 "notification": "normal"
               }
             }
+        """
+
+        const val NOTE_JSON = """
+            {"note": {"subject_id": "7", "body": "Met in Berlin"}}
         """
     }
 }
