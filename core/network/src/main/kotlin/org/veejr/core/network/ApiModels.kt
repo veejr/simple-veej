@@ -154,6 +154,22 @@ data class MessageDeliveryPolicy(
 data class MessageDeliveryPolicyResponse(val policy: MessageDeliveryPolicy)
 
 @Serializable
+data class MessageDeliveryPoliciesResponse(val policies: List<MessageDeliveryPolicy>)
+
+@Serializable
+data class GroupMemberSummary(val id: String, val handle: String)
+
+@Serializable
+data class ContactGroup(
+    val id: String,
+    val name: String,
+    val members: List<GroupMemberSummary>,
+)
+
+@Serializable
+data class GroupsResponse(val groups: List<ContactGroup>)
+
+@Serializable
 data class ResolveRecipientsRequest(
     @SerialName("friend_ids") val friendIds: List<String>,
     @SerialName("group_ids") val groupIds: List<String> = emptyList(),

@@ -155,8 +155,9 @@ class VeejrApiClientTest {
     fun `updates a contact delivery policy`() = runBlocking<Unit> {
         server.enqueue(jsonResponse(POLICY_JSON))
 
-        val response = api.putContactDeliveryPolicy(
+        val response = api.putMessageDeliveryPolicy(
             "access-secret",
+            "contact",
             "7",
             MessageDeliveryPolicyRequest("automatic"),
         )
@@ -168,6 +169,19 @@ class VeejrApiClientTest {
         assertEquals("/api/v1/contacts/7/message-delivery-policy", request.path)
         assertEquals("automatic", body.getValue("acceptance").jsonPrimitive.content)
         assertEquals("normal", body.getValue("notification").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `deletes a group override to restore inheritance`() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        api.deleteMessageDeliveryPolicy("access-secret", "group", "12")
+
+        server.takeRequest().also { request ->
+            assertEquals("DELETE", request.method)
+            assertEquals("/api/v1/groups/12/message-delivery-policy", request.path)
+            assertEquals("Bearer access-secret", request.getHeader("Authorization"))
+        }
     }
 
     @Test

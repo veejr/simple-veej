@@ -21,11 +21,19 @@ interface VeejrApi {
     suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse
     suspend fun declineNotification(accessToken: String, id: String)
     suspend fun contacts(accessToken: String): ContactsResponse
-    suspend fun putContactDeliveryPolicy(
+    suspend fun groups(accessToken: String): GroupsResponse
+    suspend fun messageDeliveryPolicies(accessToken: String): MessageDeliveryPoliciesResponse
+    suspend fun putMessageDeliveryPolicy(
         accessToken: String,
-        contactId: String,
+        subjectType: String,
+        subjectId: String,
         request: MessageDeliveryPolicyRequest,
     ): MessageDeliveryPolicyResponse
+    suspend fun deleteMessageDeliveryPolicy(
+        accessToken: String,
+        subjectType: String,
+        subjectId: String,
+    )
     suspend fun resolveRecipients(
         accessToken: String,
         request: ResolveRecipientsRequest,
@@ -90,12 +98,33 @@ class VeejrApiClient(
 
     override suspend fun contacts(accessToken: String): ContactsResponse = get("contacts", accessToken)
 
-    override suspend fun putContactDeliveryPolicy(
+    override suspend fun groups(accessToken: String): GroupsResponse = get("groups", accessToken)
+
+    override suspend fun messageDeliveryPolicies(
         accessToken: String,
-        contactId: String,
+    ): MessageDeliveryPoliciesResponse = get("message-delivery-policies", accessToken)
+
+    override suspend fun putMessageDeliveryPolicy(
+        accessToken: String,
+        subjectType: String,
+        subjectId: String,
         request: MessageDeliveryPolicyRequest,
-    ): MessageDeliveryPolicyResponse =
-        put("contacts/$contactId/message-delivery-policy", request, accessToken)
+    ): MessageDeliveryPolicyResponse = put(
+        "${policyPath(subjectType)}/$subjectId/message-delivery-policy",
+        request,
+        accessToken,
+    )
+
+    override suspend fun deleteMessageDeliveryPolicy(
+        accessToken: String,
+        subjectType: String,
+        subjectId: String,
+    ) {
+        val request = request("${policyPath(subjectType)}/$subjectId/message-delivery-policy", accessToken)
+            .delete()
+            .build()
+        executeNoContent(request)
+    }
 
     override suspend fun resolveRecipients(
         accessToken: String,
@@ -181,6 +210,13 @@ class VeejrApiClient(
 
         if (accessToken != null) builder.header("Authorization", "Bearer $accessToken")
         return builder
+    }
+
+    private fun policyPath(subjectType: String): String = when (subjectType) {
+        "contact" -> "contacts"
+        "group" -> "groups"
+        "conversation" -> "conversations"
+        else -> throw IllegalArgumentException("Unsupported delivery policy subject")
     }
 
     private suspend inline fun <reified T> execute(request: Request): T {

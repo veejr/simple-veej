@@ -17,6 +17,8 @@ import org.veejr.core.network.Account
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.DeviceInfo
+import org.veejr.core.network.ContactGroup
+import org.veejr.core.network.MessageDeliveryPolicy
 import org.veejr.core.network.PendingNotification
 import org.veejr.core.network.MessageBatchRequest
 import org.veejr.core.network.Recipient
@@ -35,6 +37,8 @@ data class AppUiState(
     val notifications: List<PendingNotification> = emptyList(),
     val messages: List<InboxMessage> = emptyList(),
     val contacts: List<Recipient> = emptyList(),
+    val groups: List<ContactGroup> = emptyList(),
+    val deliveryPolicies: List<MessageDeliveryPolicy> = emptyList(),
 )
 
 data class InboxMessage(
@@ -118,6 +122,8 @@ class VeejrViewModel(
                 notifications = emptyList(),
                 messages = emptyList(),
                 contacts = emptyList(),
+                groups = emptyList(),
+                deliveryPolicies = emptyList(),
             )
         }
     }
@@ -271,23 +277,27 @@ class VeejrViewModel(
         }
     }
 
-    fun setContactAutoAccept(contactId: String, enabled: Boolean) = viewModelScope.launch {
-        val manager = sessionManager ?: return@launch
-        mutableState.update { it.copy(loading = true, error = null) }
-        try {
-            manager.setContactAutoAccept(contactId, enabled)
-            mutableState.update {
-                it.copy(
-                    loading = false,
-                    contacts = it.contacts.map { contact ->
-                        if (contact.id == contactId) contact.copy(autoAccept = enabled) else contact
-                    },
-                )
+    fun setDeliveryPolicy(subjectType: String, subjectId: String, acceptance: String?) =
+        viewModelScope.launch {
+            val manager = sessionManager ?: return@launch
+            mutableState.update { it.copy(loading = true, error = null) }
+            try {
+                val policy = manager.setDeliveryPolicy(subjectType, subjectId, acceptance)
+                mutableState.update {
+                    it.copy(
+                        loading = false,
+                        deliveryPolicies = it.deliveryPolicies
+                            .filterNot { item ->
+                                item.subjectType == subjectType && item.subjectId == subjectId
+                            }
+                            .let { policies -> if (policy == null) policies else policies + policy },
+                    )
+                }
+                loadInbox()
+            } catch (error: Exception) {
+                mutableState.update { it.copy(loading = false, error = messageFor(error)) }
             }
-        } catch (error: Exception) {
-            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         }
-    }
 
     private fun restoreSession() = viewModelScope.launch {
         val storedEndpoint = storage.endpoint
@@ -353,6 +363,8 @@ class VeejrViewModel(
         try {
             val notifications = manager.pendingNotifications()
             val contacts = manager.contacts()
+            val groups = manager.groups()
+            val policies = manager.messageDeliveryPolicies()
             val history = manager.messageHistory()
             val messages = withContext(Dispatchers.Default) {
                 history.envelopes.mapNotNull { envelope ->
@@ -371,6 +383,8 @@ class VeejrViewModel(
                     loading = false,
                     notifications = notifications,
                     contacts = contacts,
+                    groups = groups,
+                    deliveryPolicies = policies,
                     messages = messages,
                 )
             }

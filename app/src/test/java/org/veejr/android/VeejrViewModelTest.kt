@@ -26,11 +26,13 @@ import org.veejr.core.network.NotificationsResponse
 import org.veejr.core.network.PendingNotification
 import org.veejr.core.network.SenderSummary
 import org.veejr.core.network.ContactsResponse
+import org.veejr.core.network.GroupsResponse
 import org.veejr.core.network.MessageBatchRequest
 import org.veejr.core.network.MessageBatchResponse
 import org.veejr.core.network.MessageDeliveryPolicy
 import org.veejr.core.network.MessageDeliveryPolicyRequest
 import org.veejr.core.network.MessageDeliveryPolicyResponse
+import org.veejr.core.network.MessageDeliveryPoliciesResponse
 import org.veejr.core.network.Recipient
 import org.veejr.core.network.ResolveRecipientsRequest
 import org.veejr.core.network.ResolveRecipientsResponse
@@ -158,11 +160,16 @@ class VeejrViewModelTest {
         advanceUntilIdle()
         viewModel.setupIdentity("long passphrase", "long passphrase").join()
 
-        viewModel.setContactAutoAccept(contact.id, true)
+        viewModel.setDeliveryPolicy("contact", contact.id, "automatic")
         advanceUntilIdle()
 
-        assertEquals(true, viewModel.state.value.contacts.single().autoAccept)
-        assertEquals(contact.id to "automatic", api.policyUpdate)
+        assertEquals("automatic", viewModel.state.value.deliveryPolicies.single().acceptance)
+        assertEquals("contact:7" to "automatic", api.policyUpdate)
+
+        viewModel.setDeliveryPolicy("contact", contact.id, null)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<MessageDeliveryPolicy>(), viewModel.state.value.deliveryPolicies)
     }
 
     @Test
@@ -198,6 +205,7 @@ class VeejrViewModelTest {
         var notifications: List<PendingNotification> = emptyList()
         var contacts: List<Recipient> = emptyList()
         var policyUpdate: Pair<String, String>? = null
+        var policies: List<MessageDeliveryPolicy> = emptyList()
         val declinedIds = mutableListOf<String>()
         override suspend fun capabilities() = Capabilities(
             apiVersions = listOf(1),
@@ -236,15 +244,38 @@ class VeejrViewModelTest {
 
         override suspend fun contacts(accessToken: String) = ContactsResponse(contacts)
 
-        override suspend fun putContactDeliveryPolicy(
+        override suspend fun groups(accessToken: String) = GroupsResponse(emptyList())
+
+        override suspend fun messageDeliveryPolicies(accessToken: String) =
+            MessageDeliveryPoliciesResponse(policies)
+
+        override suspend fun putMessageDeliveryPolicy(
             accessToken: String,
-            contactId: String,
+            subjectType: String,
+            subjectId: String,
             request: MessageDeliveryPolicyRequest,
         ): MessageDeliveryPolicyResponse {
-            policyUpdate = contactId to request.acceptance
-            return MessageDeliveryPolicyResponse(
-                MessageDeliveryPolicy("contact", contactId, request.acceptance, request.notification),
+            policyUpdate = "$subjectType:$subjectId" to request.acceptance
+            val policy = MessageDeliveryPolicy(
+                subjectType,
+                subjectId,
+                request.acceptance,
+                request.notification,
             )
+            policies = policies.filterNot {
+                it.subjectType == subjectType && it.subjectId == subjectId
+            } + policy
+            return MessageDeliveryPolicyResponse(policy)
+        }
+
+        override suspend fun deleteMessageDeliveryPolicy(
+            accessToken: String,
+            subjectType: String,
+            subjectId: String,
+        ) {
+            policies = policies.filterNot {
+                it.subjectType == subjectType && it.subjectId == subjectId
+            }
         }
 
         override suspend fun resolveRecipients(

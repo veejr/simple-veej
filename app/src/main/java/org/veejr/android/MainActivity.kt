@@ -28,7 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -91,7 +91,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onRefresh = viewModel::refreshInbox,
                             onSync = viewModel::syncInbox,
                             onSend = viewModel::sendMessage,
-                            onSetAutoAccept = viewModel::setContactAutoAccept,
+                            onSetDeliveryPolicy = viewModel::setDeliveryPolicy,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )
@@ -287,7 +287,7 @@ private fun HomeScreen(
     onRefresh: () -> Unit,
     onSync: () -> Unit,
     onSend: (String, String) -> Unit,
-    onSetAutoAccept: (String, Boolean) -> Unit,
+    onSetDeliveryPolicy: (String, String, String?) -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
@@ -364,31 +364,27 @@ private fun HomeScreen(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "Automatically accept from ${contact.handle}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Text(
-                                if (contact.autoAccept) {
-                                    "Encrypted messages appear after local unlock."
-                                } else {
-                                    "Ask before releasing encrypted content."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = contact.autoAccept,
-                            onCheckedChange = { onSetAutoAccept(contact.id, it) },
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        DeliveryPolicySelector(
+                            label = "Contact default · ${contact.handle}",
+                            selection = state.policyAcceptance("contact", contact.id),
                             enabled = !state.loading,
+                            onSelect = { onSetDeliveryPolicy("contact", contact.id, it) },
+                        )
+                        DeliveryPolicySelector(
+                            label = "This conversation",
+                            selection = state.policyAcceptance("conversation", contact.id),
+                            enabled = !state.loading,
+                            onSelect = { onSetDeliveryPolicy("conversation", contact.id, it) },
+                        )
+                        Text(
+                            if (contact.autoAccept) {
+                                "Effective result: Auto · decrypts only after local unlock"
+                            } else {
+                                "Effective result: Ask before releasing encrypted content"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -401,6 +397,35 @@ private fun HomeScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
                     Text("Send to ${contact.handle}")
+                }
+            }
+            if (state.groups.isNotEmpty()) {
+                Text(
+                    "Group defaults",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 18.dp),
+                )
+                state.groups.forEach { group ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            DeliveryPolicySelector(
+                                label = group.name,
+                                selection = state.policyAcceptance("group", group.id),
+                                enabled = !state.loading,
+                                onSelect = { onSetDeliveryPolicy("group", group.id, it) },
+                            )
+                            Text(
+                                group.members.joinToString { it.handle },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         } else {
@@ -474,6 +499,34 @@ private fun HomeScreen(
         }
         TextButton(onClick = onChangeInstance, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Forget this instance")
+        }
+    }
+}
+
+private fun AppUiState.policyAcceptance(subjectType: String, subjectId: String): String? =
+    deliveryPolicies.firstOrNull {
+        it.subjectType == subjectType && it.subjectId == subjectId
+    }?.acceptance
+
+@Composable
+private fun DeliveryPolicySelector(
+    label: String,
+    selection: String?,
+    enabled: Boolean,
+    onSelect: (String?) -> Unit,
+) {
+    Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(null to "Inherit", "ask" to "Ask", "automatic" to "Auto").forEach { (value, title) ->
+            FilterChip(
+                selected = selection == value,
+                onClick = { onSelect(value) },
+                label = { Text(title) },
+                enabled = enabled,
+            )
         }
     }
 }

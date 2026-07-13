@@ -161,11 +161,23 @@ class AuthSessionManagerTest {
 
         override suspend fun contacts(accessToken: String) = ContactsResponse(emptyList())
 
-        override suspend fun putContactDeliveryPolicy(
+        override suspend fun groups(accessToken: String) = GroupsResponse(emptyList())
+
+        override suspend fun messageDeliveryPolicies(accessToken: String) =
+            MessageDeliveryPoliciesResponse(emptyList())
+
+        override suspend fun putMessageDeliveryPolicy(
             accessToken: String,
-            contactId: String,
+            subjectType: String,
+            subjectId: String,
             request: MessageDeliveryPolicyRequest,
         ): MessageDeliveryPolicyResponse = error("not used")
+
+        override suspend fun deleteMessageDeliveryPolicy(
+            accessToken: String,
+            subjectType: String,
+            subjectId: String,
+        ) = Unit
 
         override suspend fun resolveRecipients(
             accessToken: String,

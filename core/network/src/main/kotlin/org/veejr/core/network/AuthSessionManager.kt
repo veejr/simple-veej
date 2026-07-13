@@ -41,15 +41,29 @@ class AuthSessionManager(
     suspend fun contacts(): List<Recipient> =
         withAccessToken { accessToken -> api.contacts(accessToken).contacts }
 
-    suspend fun setContactAutoAccept(contactId: String, enabled: Boolean): MessageDeliveryPolicy =
+    suspend fun groups(): List<ContactGroup> =
+        withAccessToken { accessToken -> api.groups(accessToken).groups }
+
+    suspend fun messageDeliveryPolicies(): List<MessageDeliveryPolicy> =
+        withAccessToken { accessToken -> api.messageDeliveryPolicies(accessToken).policies }
+
+    suspend fun setDeliveryPolicy(
+        subjectType: String,
+        subjectId: String,
+        acceptance: String?,
+    ): MessageDeliveryPolicy? =
         withAccessToken { accessToken ->
-            api.putContactDeliveryPolicy(
-                accessToken,
-                contactId,
-                MessageDeliveryPolicyRequest(
-                    acceptance = if (enabled) "automatic" else "ask",
-                ),
-            ).policy
+            if (acceptance == null) {
+                api.deleteMessageDeliveryPolicy(accessToken, subjectType, subjectId)
+                null
+            } else {
+                api.putMessageDeliveryPolicy(
+                    accessToken,
+                    subjectType,
+                    subjectId,
+                    MessageDeliveryPolicyRequest(acceptance = acceptance),
+                ).policy
+            }
         }
 
     suspend fun resolveRecipients(friendId: String): ResolveRecipientsResponse =
