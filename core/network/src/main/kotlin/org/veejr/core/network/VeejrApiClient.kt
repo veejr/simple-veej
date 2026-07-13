@@ -30,6 +30,7 @@ interface VeejrApi {
         idempotencyKey: String,
         request: MessageBatchRequest,
     ): MessageBatchResponse
+    suspend fun messageHistory(accessToken: String, cursor: String? = null): EnvelopePage
     suspend fun logout(accessToken: String)
 }
 
@@ -99,6 +100,14 @@ class VeejrApiClient(
             .post(json.encodeToString(request).toRequestBody(JSON_MEDIA_TYPE))
             .build()
         return execute(httpRequest)
+    }
+
+    override suspend fun messageHistory(accessToken: String, cursor: String?): EnvelopePage {
+        val path = buildString {
+            append("envelopes?kind=message")
+            if (cursor != null) append("&cursor=").append(java.net.URLEncoder.encode(cursor, "UTF-8"))
+        }
+        return get(path, accessToken)
     }
 
     override suspend fun logout(accessToken: String) {

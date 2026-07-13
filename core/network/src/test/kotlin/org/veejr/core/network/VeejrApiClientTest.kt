@@ -136,6 +136,22 @@ class VeejrApiClientTest {
     }
 
     @Test
+    fun `loads an encrypted message history page with bearer authentication`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse(HISTORY_JSON, "Cache-Control" to "no-store"))
+
+        val page = api.messageHistory("access-secret")
+
+        assertEquals(1, page.envelopes.size)
+        assertEquals("ciphertext", page.envelopes.single().ciphertext)
+        assertEquals("next-page", page.nextCursor)
+        server.takeRequest().also { request ->
+            assertEquals("GET", request.method)
+            assertEquals("/api/v1/envelopes?kind=message", request.path)
+            assertEquals("Bearer access-secret", request.getHeader("Authorization"))
+        }
+    }
+
+    @Test
     fun `decodes stable API errors without exposing response bodies`() {
         server.enqueue(
             MockResponse()
@@ -278,6 +294,25 @@ class VeejrApiClientTest {
                 "request_id": "req-123",
                 "details": {}
               }
+            }
+        """
+
+        const val HISTORY_JSON = """
+            {
+              "envelopes": [{
+                "public_id": "envelope-1",
+                "batch_id": "batch-1",
+                "kind": "message",
+                "ciphertext": "ciphertext",
+                "nonce": "nonce",
+                "peer_key": "peer-key",
+                "sender": {"id": "7", "handle": "@bob"},
+                "sent_by_me": false,
+                "resealed": false,
+                "created_at": "2026-07-12T20:00:00Z",
+                "display_count": 0
+              }],
+              "next_cursor": "next-page"
             }
         """
     }

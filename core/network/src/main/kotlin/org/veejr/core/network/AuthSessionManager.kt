@@ -53,6 +53,9 @@ class AuthSessionManager(
         api.sendMessageBatch(accessToken, idempotencyKey, request)
     }
 
+    suspend fun messageHistory(cursor: String? = null): EnvelopePage =
+        withAccessToken { accessToken -> api.messageHistory(accessToken, cursor) }
+
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 
     suspend fun logout() {

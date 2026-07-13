@@ -329,11 +329,30 @@ class VeejrViewModel(
 
     private suspend fun loadInbox() {
         val manager = sessionManager ?: return
+        val secret = identitySecret ?: return
         try {
             val notifications = manager.pendingNotifications()
             val contacts = manager.contacts()
+            val history = manager.messageHistory()
+            val messages = withContext(Dispatchers.Default) {
+                history.envelopes.mapNotNull { envelope ->
+                    identityCoordinator.openMessage(envelope, secret)?.let { text ->
+                        InboxMessage(
+                            publicId = envelope.publicId,
+                            senderHandle = if (envelope.sentByMe) "You" else envelope.sender.handle,
+                            text = text,
+                            createdAt = envelope.createdAt,
+                        )
+                    }
+                }
+            }
             mutableState.update {
-                it.copy(loading = false, notifications = notifications, contacts = contacts)
+                it.copy(
+                    loading = false,
+                    notifications = notifications,
+                    contacts = contacts,
+                    messages = messages,
+                )
             }
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }

@@ -119,6 +119,12 @@ data class Envelope(
 data class EnvelopeResponse(val envelope: Envelope)
 
 @Serializable
+data class EnvelopePage(
+    val envelopes: List<Envelope>,
+    @SerialName("next_cursor") val nextCursor: String? = null,
+)
+
+@Serializable
 data class Recipient(
     val id: String,
     val username: String,

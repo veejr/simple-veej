@@ -21,6 +21,7 @@ import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.LoginResponse
 import org.veejr.core.network.KeySetupRequest
 import org.veejr.core.network.EnvelopeResponse
+import org.veejr.core.network.EnvelopePage
 import org.veejr.core.network.NotificationsResponse
 import org.veejr.core.network.PendingNotification
 import org.veejr.core.network.SenderSummary
@@ -223,6 +224,8 @@ class VeejrViewModelTest {
             idempotencyKey: String,
             request: MessageBatchRequest,
         ): MessageBatchResponse = error("not used")
+        override suspend fun messageHistory(accessToken: String, cursor: String?) =
+            EnvelopePage(emptyList())
         override suspend fun logout(accessToken: String) = Unit
     }
 
