@@ -18,9 +18,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -35,16 +38,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import kotlinx.coroutines.delay
 
-private enum class HomeTab(val title: String, val glyph: String) {
-    INBOX("Inbox", "✦"),
-    CONTACTS("Contacts", "●"),
-    GROUPS("Groups", "◎"),
-    ACCOUNT("Account", "☺"),
+private enum class HomeTab(val title: String, val icon: ImageVector) {
+    INBOX("Inbox", Icons.AutoMirrored.Outlined.Chat),
+    CONTACTS("Contacts", Icons.Outlined.People),
+    GROUPS("Groups", Icons.Outlined.Groups),
+    ACCOUNT("Account", Icons.Outlined.Settings),
 }
 
 @Composable
@@ -77,8 +88,15 @@ fun HomeScreen(
                     NavigationBarItem(
                         selected = tab == item,
                         onClick = { tab = item },
-                        icon = { Text(item.glyph, style = MaterialTheme.typography.titleMedium) },
+                        icon = { Icon(item.icon, contentDescription = item.title) },
                         label = { Text(item.title) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
                     )
                 }
             }
@@ -95,14 +113,14 @@ fun HomeScreen(
 
 @Composable
 private fun MobileTopBar(tab: HomeTab, state: AppUiState, onRefresh: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    Surface(color = MaterialTheme.colorScheme.primary, shadowElevation = 4.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f)) {
                     Text(
                         "v",
                         modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
@@ -111,16 +129,27 @@ private fun MobileTopBar(tab: HomeTab, state: AppUiState, onRefresh: () -> Unit)
                     )
                 }
                 Column(Modifier.padding(start = 12.dp)) {
-                    Text(tab.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        state.account?.handle.orEmpty(),
+                        if (tab == HomeTab.INBOX) "veejr" else tab.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Text(
+                        if (tab == HomeTab.INBOX) "Inbox · ${state.account?.handle.orEmpty()}" else state.account?.handle.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
                     )
                 }
             }
             if (tab == HomeTab.INBOX) {
-                TextButton(onClick = onRefresh, enabled = !state.loading) { Text("Sync") }
+                IconButton(onClick = onRefresh, enabled = !state.loading) {
+                    Icon(
+                        Icons.Outlined.Refresh,
+                        contentDescription = "Sync inbox",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             }
         }
     }
@@ -173,9 +202,9 @@ private fun InboxScreen(
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
+                shadowElevation = 1.dp,
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text("New message", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -248,9 +277,8 @@ private fun ContactsScreen(
         items(state.contacts, key = { "contact-${it.id}" }) { contact ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 1.dp,
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -299,9 +327,8 @@ private fun GroupsScreen(
         items(state.groups, key = { "group-${it.id}" }) { group ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 1.dp,
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -429,14 +456,18 @@ private fun ConsentCard(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFFFF7E0),
+        shadowElevation = 1.dp,
+    ) {
         Column(Modifier.padding(16.dp)) {
             Text("$handle sent an encrypted $kind", fontWeight = FontWeight.Bold)
             Text(
                 "Content remains unavailable until you consent.",
                 modifier = Modifier.padding(top = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -464,7 +495,7 @@ private fun MessageBubble(message: InboxMessage) {
                 bottomStart = if (mine) 20.dp else 5.dp,
                 bottomEnd = if (mine) 5.dp else 20.dp,
             ),
-            color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            color = if (mine) Color(0xFFD9FDD3) else MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
         ) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
@@ -499,7 +530,7 @@ private fun Avatar(handle: String) {
 private fun EmptyState(title: String, detail: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {

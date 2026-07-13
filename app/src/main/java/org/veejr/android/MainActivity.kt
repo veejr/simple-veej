@@ -43,11 +43,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
         setContent {
             val viewModel: VeejrViewModel = viewModel(
                 factory = VeejrViewModel.Factory(SessionVault(applicationContext)),
@@ -328,11 +333,18 @@ private fun ErrorText(error: String?) {
 @Composable
 private fun VeejrTheme(content: @Composable () -> Unit) {
     val colors = MaterialTheme.colorScheme.copy(
-        primary = Color(0xFF345C49),
+        primary = Color(0xFF008069),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFFDCEDE3),
-        background = Color(0xFFF5F2EA),
-        surface = Color(0xFFFFFCF5),
+        primaryContainer = Color(0xFFD9FDD3),
+        onPrimaryContainer = Color(0xFF103629),
+        secondary = Color(0xFF00A884),
+        secondaryContainer = Color(0xFFE7FCEB),
+        background = Color(0xFFEFEAE2),
+        surface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFFF5F7F8),
+        onSurface = Color(0xFF111B21),
+        onSurfaceVariant = Color(0xFF667781),
+        outline = Color(0xFFD8DDE0),
     )
     MaterialTheme(colorScheme = colors, content = content)
 }
