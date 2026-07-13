@@ -152,6 +152,25 @@ class VeejrApiClientTest {
     }
 
     @Test
+    fun `updates a contact delivery policy`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse(POLICY_JSON))
+
+        val response = api.putContactDeliveryPolicy(
+            "access-secret",
+            "7",
+            MessageDeliveryPolicyRequest("automatic"),
+        )
+
+        assertEquals("automatic", response.policy.acceptance)
+        val request = server.takeRequest()
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("PUT", request.method)
+        assertEquals("/api/v1/contacts/7/message-delivery-policy", request.path)
+        assertEquals("automatic", body.getValue("acceptance").jsonPrimitive.content)
+        assertEquals("normal", body.getValue("notification").jsonPrimitive.content)
+    }
+
+    @Test
     fun `decodes stable API errors without exposing response bodies`() {
         server.enqueue(
             MockResponse()
@@ -313,6 +332,17 @@ class VeejrApiClientTest {
                 "display_count": 0
               }],
               "next_cursor": "next-page"
+            }
+        """
+
+        const val POLICY_JSON = """
+            {
+              "policy": {
+                "subject_type": "contact",
+                "subject_id": "7",
+                "acceptance": "automatic",
+                "notification": "normal"
+              }
             }
         """
     }

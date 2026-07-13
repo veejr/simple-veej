@@ -21,6 +21,11 @@ interface VeejrApi {
     suspend fun acceptNotification(accessToken: String, id: String): EnvelopeResponse
     suspend fun declineNotification(accessToken: String, id: String)
     suspend fun contacts(accessToken: String): ContactsResponse
+    suspend fun putContactDeliveryPolicy(
+        accessToken: String,
+        contactId: String,
+        request: MessageDeliveryPolicyRequest,
+    ): MessageDeliveryPolicyResponse
     suspend fun resolveRecipients(
         accessToken: String,
         request: ResolveRecipientsRequest,
@@ -84,6 +89,13 @@ class VeejrApiClient(
     }
 
     override suspend fun contacts(accessToken: String): ContactsResponse = get("contacts", accessToken)
+
+    override suspend fun putContactDeliveryPolicy(
+        accessToken: String,
+        contactId: String,
+        request: MessageDeliveryPolicyRequest,
+    ): MessageDeliveryPolicyResponse =
+        put("contacts/$contactId/message-delivery-policy", request, accessToken)
 
     override suspend fun resolveRecipients(
         accessToken: String,

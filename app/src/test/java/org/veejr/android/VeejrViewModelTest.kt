@@ -28,6 +28,10 @@ import org.veejr.core.network.SenderSummary
 import org.veejr.core.network.ContactsResponse
 import org.veejr.core.network.MessageBatchRequest
 import org.veejr.core.network.MessageBatchResponse
+import org.veejr.core.network.MessageDeliveryPolicy
+import org.veejr.core.network.MessageDeliveryPolicyRequest
+import org.veejr.core.network.MessageDeliveryPolicyResponse
+import org.veejr.core.network.Recipient
 import org.veejr.core.network.ResolveRecipientsRequest
 import org.veejr.core.network.ResolveRecipientsResponse
 import org.veejr.core.network.RefreshResponse
@@ -146,6 +150,22 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `contact automatic acceptance is updated through the authenticated API`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val contact = Recipient("7", "bob", "@bob", "key")
+        val api = FakeApi().apply { contacts = listOf(contact) }
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+
+        viewModel.setContactAutoAccept(contact.id, true)
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.contacts.single().autoAccept)
+        assertEquals(contact.id to "automatic", api.policyUpdate)
+    }
+
+    @Test
     fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
@@ -176,6 +196,8 @@ class VeejrViewModelTest {
     private class FakeApi : VeejrApi {
         var keySetupRequest: KeySetupRequest? = null
         var notifications: List<PendingNotification> = emptyList()
+        var contacts: List<Recipient> = emptyList()
+        var policyUpdate: Pair<String, String>? = null
         val declinedIds = mutableListOf<String>()
         override suspend fun capabilities() = Capabilities(
             apiVersions = listOf(1),
@@ -212,7 +234,18 @@ class VeejrViewModelTest {
             declinedIds += id
         }
 
-        override suspend fun contacts(accessToken: String) = ContactsResponse(emptyList())
+        override suspend fun contacts(accessToken: String) = ContactsResponse(contacts)
+
+        override suspend fun putContactDeliveryPolicy(
+            accessToken: String,
+            contactId: String,
+            request: MessageDeliveryPolicyRequest,
+        ): MessageDeliveryPolicyResponse {
+            policyUpdate = contactId to request.acceptance
+            return MessageDeliveryPolicyResponse(
+                MessageDeliveryPolicy("contact", contactId, request.acceptance, request.notification),
+            )
+        }
 
         override suspend fun resolveRecipients(
             accessToken: String,

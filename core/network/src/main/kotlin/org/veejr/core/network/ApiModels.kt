@@ -130,10 +130,28 @@ data class Recipient(
     val username: String,
     val handle: String,
     @SerialName("public_key") val publicKey: String,
+    @SerialName("auto_accept") val autoAccept: Boolean = false,
 )
 
 @Serializable
 data class ContactsResponse(val contacts: List<Recipient>)
+
+@Serializable
+data class MessageDeliveryPolicyRequest(
+    val acceptance: String,
+    val notification: String = "normal",
+)
+
+@Serializable
+data class MessageDeliveryPolicy(
+    @SerialName("subject_type") val subjectType: String,
+    @SerialName("subject_id") val subjectId: String,
+    val acceptance: String,
+    val notification: String,
+)
+
+@Serializable
+data class MessageDeliveryPolicyResponse(val policy: MessageDeliveryPolicy)
 
 @Serializable
 data class ResolveRecipientsRequest(

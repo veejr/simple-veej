@@ -41,6 +41,17 @@ class AuthSessionManager(
     suspend fun contacts(): List<Recipient> =
         withAccessToken { accessToken -> api.contacts(accessToken).contacts }
 
+    suspend fun setContactAutoAccept(contactId: String, enabled: Boolean): MessageDeliveryPolicy =
+        withAccessToken { accessToken ->
+            api.putContactDeliveryPolicy(
+                accessToken,
+                contactId,
+                MessageDeliveryPolicyRequest(
+                    acceptance = if (enabled) "automatic" else "ask",
+                ),
+            ).policy
+        }
+
     suspend fun resolveRecipients(friendId: String): ResolveRecipientsResponse =
         withAccessToken { accessToken ->
             api.resolveRecipients(accessToken, ResolveRecipientsRequest(friendIds = listOf(friendId)))

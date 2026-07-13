@@ -190,6 +190,8 @@ class VeejrViewModel(
         loadInbox()
     }
 
+    fun syncInbox() = viewModelScope.launch { loadInbox() }
+
     fun acceptNotification(id: String) = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
         val secret = identitySecret ?: return@launch
@@ -263,6 +265,24 @@ class VeejrViewModel(
             )
             mutableState.update {
                 it.copy(loading = false, messages = listOf(message) + it.messages)
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        }
+    }
+
+    fun setContactAutoAccept(contactId: String, enabled: Boolean) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null) }
+        try {
+            manager.setContactAutoAccept(contactId, enabled)
+            mutableState.update {
+                it.copy(
+                    loading = false,
+                    contacts = it.contacts.map { contact ->
+                        if (contact.id == contactId) contact.copy(autoAccept = enabled) else contact
+                    },
+                )
             }
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }

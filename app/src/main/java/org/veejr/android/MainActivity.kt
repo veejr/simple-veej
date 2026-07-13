@@ -28,9 +28,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,7 +89,9 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onAccept = viewModel::acceptNotification,
                             onDecline = viewModel::declineNotification,
                             onRefresh = viewModel::refreshInbox,
+                            onSync = viewModel::syncInbox,
                             onSend = viewModel::sendMessage,
+                            onSetAutoAccept = viewModel::setContactAutoAccept,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )
@@ -280,12 +285,20 @@ private fun HomeScreen(
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
     onRefresh: () -> Unit,
+    onSync: () -> Unit,
     onSend: (String, String) -> Unit,
+    onSetAutoAccept: (String, Boolean) -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
     val account = state.account ?: return
     var draft by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            onSync()
+        }
+    }
     AppCard {
         BrandHeader("You’re connected", state.endpoint.removePrefix("https://"))
         Spacer(Modifier.height(28.dp))
@@ -346,6 +359,39 @@ private fun HomeScreen(
                 modifier = Modifier.padding(top = 12.dp),
             )
             state.contacts.forEach { contact ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Automatically accept from ${contact.handle}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                if (contact.autoAccept) {
+                                    "Encrypted messages appear after local unlock."
+                                } else {
+                                    "Ask before releasing encrypted content."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = contact.autoAccept,
+                            onCheckedChange = { onSetAutoAccept(contact.id, it) },
+                            enabled = !state.loading,
+                        )
+                    }
+                }
                 Button(
                     onClick = {
                         onSend(contact.id, draft)
