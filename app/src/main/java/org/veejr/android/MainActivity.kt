@@ -93,6 +93,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onSend = viewModel::sendMessage,
                             onSetDeliveryPolicy = viewModel::setDeliveryPolicy,
                             onSavePrivateNote = viewModel::savePrivateNote,
+                            onLoadMoreHistory = viewModel::loadMoreHistory,
                             onLogout = viewModel::logout,
                             onChangeInstance = viewModel::changeInstance,
                         )

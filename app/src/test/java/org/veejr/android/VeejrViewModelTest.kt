@@ -206,6 +206,26 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `history pagination advances through server cursors`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi().apply {
+            historyPages[null] = EnvelopePage(emptyList(), nextCursor = "page-2")
+            historyPages["page-2"] = EnvelopePage(emptyList(), nextCursor = null)
+        }
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+
+        assertEquals("page-2", viewModel.state.value.historyNextCursor)
+
+        viewModel.loadMoreHistory().join()
+
+        assertEquals(listOf<String?>(null, "page-2"), api.historyCursors)
+        assertNull(viewModel.state.value.historyNextCursor)
+        assertFalse(viewModel.state.value.historyLoadingMore)
+    }
+
+    @Test
     fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
@@ -239,6 +259,8 @@ class VeejrViewModelTest {
         var contacts: List<Recipient> = emptyList()
         var resolveToSelf = false
         var sentBatch: MessageBatchRequest? = null
+        val historyPages = mutableMapOf<String?, EnvelopePage>()
+        val historyCursors = mutableListOf<String?>()
         var policyUpdate: Pair<String, String>? = null
         var policies: List<MessageDeliveryPolicy> = emptyList()
         val declinedIds = mutableListOf<String>()
@@ -356,7 +378,7 @@ class VeejrViewModelTest {
             return MessageBatchResponse("batch", emptyList(), emptyList())
         }
         override suspend fun messageHistory(accessToken: String, cursor: String?, kind: String?) =
-            EnvelopePage(emptyList())
+            historyPages[cursor].also { historyCursors += cursor } ?: EnvelopePage(emptyList())
         override suspend fun logout(accessToken: String) = Unit
     }
 

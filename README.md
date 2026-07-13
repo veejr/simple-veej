@@ -16,12 +16,13 @@ using mobile-first navigation:
 - **Messages** is a WhatsApp-style conversation list combining contacts and
   groups. It shows the latest decrypted item, handles pending consent requests,
   and opens an encrypted conversation with its own composer.
-- **History** is the chronological encrypted feed. It can be filtered by
-  Everything, Messages, Locations, or Notes.
+- **History** opens from Account as a dedicated chronological encrypted feed.
+  It can be filtered by Everything, Messages, Locations, or Notes and loads the
+  next 50 envelopes as the reader approaches the end.
 - **Contacts** and **Groups** open conversations when tapped and expose
   expandable delivery-policy and private-note settings.
 - **Account** shows the active instance and unlocked identity state and provides
-  sign-out and instance-reset actions.
+  history, sign-out, and instance-reset actions.
 
 Android currently sends text messages and reads protocol-v1 message, location,
 and note payloads. Native attachment, map, contact-management, and group-editing

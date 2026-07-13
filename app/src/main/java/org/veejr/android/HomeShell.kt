@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
@@ -61,7 +67,6 @@ import kotlinx.coroutines.delay
 
 private enum class HomeTab(val title: String, val icon: ImageVector) {
     MESSAGES("Messages", Icons.AutoMirrored.Outlined.Chat),
-    HISTORY("History", Icons.Outlined.History),
     CONTACTS("Contacts", Icons.Outlined.People),
     GROUPS("Groups", Icons.Outlined.Groups),
     ACCOUNT("Account", Icons.Outlined.Settings),
@@ -85,12 +90,14 @@ fun HomeScreen(
     onSend: (String, String, String) -> Unit,
     onSetDeliveryPolicy: (String, String, String?) -> Unit,
     onSavePrivateNote: (String, String, String) -> Unit,
+    onLoadMoreHistory: () -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.MESSAGES) }
     var conversationType by rememberSaveable { mutableStateOf<String?>(null) }
     var conversationId by rememberSaveable { mutableStateOf<String?>(null) }
+    var accountHistoryOpen by rememberSaveable { mutableStateOf(false) }
     val conversation = when (conversationType) {
         "self" -> state.account?.takeIf { it.id == conversationId }?.let {
             ConversationTarget("self", it.id, "Notes to yourself", setOf(it.handle), "ME")
@@ -108,6 +115,8 @@ fun HomeScreen(
         conversationId = id
         tab = HomeTab.MESSAGES
     }
+    val density = LocalDensity.current
+    val keyboardVisible = WindowInsets.ime.getBottom(density) > 0
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -119,27 +128,36 @@ fun HomeScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            MobileTopBar(tab, state, conversation, onRefresh) {
-                conversationType = null
-                conversationId = null
+            MobileTopBar(tab, state, conversation, accountHistoryOpen, onRefresh) {
+                if (accountHistoryOpen) {
+                    accountHistoryOpen = false
+                } else {
+                    conversationType = null
+                    conversationId = null
+                }
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                HomeTab.entries.forEach { item ->
-                    NavigationBarItem(
-                        selected = tab == item,
-                        onClick = { tab = item },
-                        icon = { Icon(item.icon, contentDescription = item.title) },
-                        label = { Text(item.title) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    )
+            if (!keyboardVisible && !accountHistoryOpen) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    HomeTab.entries.forEach { item ->
+                        NavigationBarItem(
+                            selected = tab == item,
+                            onClick = {
+                                tab = item
+                                accountHistoryOpen = false
+                            },
+                            icon = { Icon(item.icon, contentDescription = item.title) },
+                            label = { Text(item.title) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },
@@ -150,7 +168,6 @@ fun HomeScreen(
             } else {
                 ConversationScreen(state, conversation, padding, onSend)
             }
-            HomeTab.HISTORY -> HistoryScreen(state, padding)
             HomeTab.CONTACTS -> ContactsScreen(
                 state,
                 padding,
@@ -165,7 +182,13 @@ fun HomeScreen(
                 onSavePrivateNote,
                 openConversation,
             )
-            HomeTab.ACCOUNT -> AccountScreen(state, padding, onLogout, onChangeInstance)
+            HomeTab.ACCOUNT -> if (accountHistoryOpen) {
+                HistoryScreen(state, padding, onLoadMoreHistory)
+            } else {
+                AccountScreen(state, padding, onLogout, onChangeInstance) {
+                    accountHistoryOpen = true
+                }
+            }
         }
     }
 }
@@ -175,6 +198,7 @@ private fun MobileTopBar(
     tab: HomeTab,
     state: AppUiState,
     conversation: ConversationTarget?,
+    accountHistoryOpen: Boolean,
     onRefresh: () -> Unit,
     onBackConversation: () -> Unit,
 ) {
@@ -185,11 +209,11 @@ private fun MobileTopBar(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (tab == HomeTab.MESSAGES && conversation != null) {
+                if (accountHistoryOpen || tab == HomeTab.MESSAGES && conversation != null) {
                     IconButton(onClick = onBackConversation) {
                         Icon(
                             Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "All conversations",
+                            contentDescription = if (accountHistoryOpen) "Back to account" else "All conversations",
                             tint = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
@@ -205,14 +229,20 @@ private fun MobileTopBar(
                 }
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(
-                        conversation?.title?.takeIf { tab == HomeTab.MESSAGES }
-                            ?: if (tab == HomeTab.MESSAGES) "veejr" else tab.title,
+                        when {
+                            accountHistoryOpen -> "History"
+                            tab == HomeTab.MESSAGES && conversation != null -> conversation.title
+                            tab == HomeTab.MESSAGES -> "veejr"
+                            else -> tab.title
+                        },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Text(
-                        if (tab == HomeTab.MESSAGES && conversation != null) {
+                        if (accountHistoryOpen) {
+                            "Encrypted archive · ${state.account?.handle.orEmpty()}"
+                        } else if (tab == HomeTab.MESSAGES && conversation != null) {
                             "Encrypted ${conversation.subjectType} conversation"
                         } else if (tab == HomeTab.MESSAGES) {
                             "Private conversations · ${state.account?.handle.orEmpty()}"
@@ -224,7 +254,7 @@ private fun MobileTopBar(
                     )
                 }
             }
-            if (tab == HomeTab.MESSAGES || tab == HomeTab.HISTORY) {
+            if (tab == HomeTab.MESSAGES || accountHistoryOpen) {
                 IconButton(onClick = onRefresh, enabled = !state.loading) {
                     Icon(
                         Icons.Outlined.Refresh,
@@ -247,11 +277,10 @@ private fun ConversationScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     val visibleMessages = conversationTimeline(state.messages, conversation)
     val listState = rememberLazyListState()
+    val composerIndex = if (visibleMessages.isEmpty()) 2 else visibleMessages.size + 1
 
-    LaunchedEffect(conversation.id, visibleMessages.size) {
-        if (visibleMessages.isNotEmpty()) {
-            listState.scrollToItem(visibleMessages.size + 1)
-        }
+    LaunchedEffect(conversation.id, visibleMessages.size, draft) {
+        listState.scrollToItem(composerIndex)
     }
 
     LazyColumn(
@@ -275,7 +304,9 @@ private fun ConversationScreen(
                 )
             }
         } else {
-            items(visibleMessages, key = { it.publicId }) { message -> MessageBubble(message) }
+            items(visibleMessages, key = { it.publicId }) { message ->
+                MessageBubble(message, state.account?.handle.orEmpty())
+            }
         }
 
         item {
@@ -433,7 +464,9 @@ private fun MessagesScreen(
                         }
                     }
                     Text(
-                        latest?.let(::messagePreview)
+                        latest?.let { message ->
+                            messagePreview(message, state.account?.handle.orEmpty())
+                        }
                             ?: if (target.subjectType == "group") "Group · tap to start" else "Tap to start a message",
                         modifier = Modifier.padding(top = 3.dp),
                         style = MaterialTheme.typography.bodyMedium,
@@ -449,11 +482,29 @@ private fun MessagesScreen(
 }
 
 @Composable
-private fun HistoryScreen(state: AppUiState, padding: PaddingValues) {
+private fun HistoryScreen(
+    state: AppUiState,
+    padding: PaddingValues,
+    onLoadMore: () -> Unit,
+) {
     var filter by rememberSaveable { mutableStateOf(HistoryFilter.EVERYTHING) }
     val items = state.messages.filter { filter.kind == null || it.kind == filter.kind }
+    val listState = rememberLazyListState()
+    val nearEnd by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible >= listState.layoutInfo.totalItemsCount - 4
+        }
+    }
+
+    LaunchedEffect(nearEnd, state.historyNextCursor) {
+        if (nearEnd && state.historyNextCursor != null && !state.historyLoadingMore) {
+            onLoadMore()
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -475,7 +526,25 @@ private fun HistoryScreen(state: AppUiState, padding: PaddingValues) {
         if (items.isEmpty()) {
             item { EmptyState("Nothing here yet", "Encrypted ${filter.title.lowercase()} will appear here.") }
         } else {
-            items(items, key = { it.publicId }) { message -> MessageBubble(message) }
+            items(items, key = { it.publicId }) { message ->
+                MessageBubble(message, state.account?.handle.orEmpty())
+            }
+        }
+        if (state.historyLoadingMore) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+                }
+            }
+        } else if (state.historyLoaded && state.historyNextCursor == null && items.isNotEmpty()) {
+            item {
+                Text(
+                    "End of encrypted history",
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         state.error?.let { error -> item { ErrorBanner(error) } }
     }
@@ -500,10 +569,23 @@ internal fun conversationTimeline(
     conversation: ConversationTarget,
 ): List<InboxMessage> = messagesForConversation(messages, conversation).sortedBy(InboxMessage::createdAt)
 
-private fun messagePreview(message: InboxMessage): String = when (message.kind) {
-    "location" -> "📍 ${message.text.ifBlank { "Shared a location" }}"
-    "note" -> "📝 ${message.title ?: message.text.ifBlank { "Map note" }}"
-    else -> if (message.sentByMe) "You: ${message.text}" else message.text
+private fun messagePreview(message: InboxMessage, selfHandle: String): String {
+    val content = when (message.kind) {
+        "location" -> "📍 ${message.text.ifBlank { "Shared a location" }}"
+        "note" -> "📝 ${message.title ?: message.text.ifBlank { "Map note" }}"
+        else -> message.text
+    }
+    return if (message.sentByMe) "${messageDirectionLabel(message, selfHandle)} · $content" else content
+}
+
+internal fun messageDirectionLabel(message: InboxMessage, selfHandle: String): String {
+    if (!message.sentByMe) return message.senderHandle
+    val recipients = message.recipientHandles.filterNot { it == selfHandle }.distinct()
+    return when {
+        recipients.isNotEmpty() -> "To ${recipients.joinToString()}"
+        selfHandle in message.recipientHandles -> "To yourself"
+        else -> "Sent"
+    }
 }
 
 @Composable
@@ -660,6 +742,7 @@ private fun AccountScreen(
     padding: PaddingValues,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val account = state.account ?: return
     LazyColumn(
@@ -693,6 +776,15 @@ private fun AccountScreen(
         }
         item {
             InfoCard("Encryption", "Portable identity keys configured · plaintext is memory-only")
+        }
+        item {
+            OutlinedButton(
+                onClick = onOpenHistory,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Icon(Icons.Outlined.History, contentDescription = null)
+                Text("Open encrypted history", Modifier.padding(start = 8.dp))
+            }
         }
         item {
             OutlinedButton(
@@ -821,7 +913,7 @@ private fun ConsentCard(
 }
 
 @Composable
-private fun MessageBubble(message: InboxMessage) {
+private fun MessageBubble(message: InboxMessage, selfHandle: String) {
     val mine = message.sentByMe
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -840,7 +932,7 @@ private fun MessageBubble(message: InboxMessage) {
         ) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
                 Text(
-                    message.senderHandle,
+                    messageDirectionLabel(message, selfHandle),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,

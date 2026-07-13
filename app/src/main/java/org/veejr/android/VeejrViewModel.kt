@@ -18,6 +18,7 @@ import org.veejr.core.network.Account
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.DeviceInfo
+import org.veejr.core.network.Envelope
 import org.veejr.core.network.ContactGroup
 import org.veejr.core.network.MessageDeliveryPolicy
 import org.veejr.core.network.PendingNotification
@@ -40,6 +41,9 @@ data class AppUiState(
     val contacts: List<Recipient> = emptyList(),
     val groups: List<ContactGroup> = emptyList(),
     val deliveryPolicies: List<MessageDeliveryPolicy> = emptyList(),
+    val historyNextCursor: String? = null,
+    val historyLoadingMore: Boolean = false,
+    val historyLoaded: Boolean = false,
 )
 
 data class InboxMessage(
@@ -131,6 +135,9 @@ class VeejrViewModel(
                 contacts = emptyList(),
                 groups = emptyList(),
                 deliveryPolicies = emptyList(),
+                historyNextCursor = null,
+                historyLoadingMore = false,
+                historyLoaded = false,
             )
         }
     }
@@ -204,6 +211,31 @@ class VeejrViewModel(
     }
 
     fun syncInbox() = viewModelScope.launch { loadInbox() }
+
+    fun loadMoreHistory() = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        val secret = identitySecret ?: return@launch
+        val cursor = mutableState.value.historyNextCursor ?: return@launch
+        if (mutableState.value.historyLoadingMore) return@launch
+
+        mutableState.update { it.copy(historyLoadingMore = true, error = null) }
+        try {
+            val page = manager.messageHistory(cursor = cursor)
+            val olderMessages = openHistory(page.envelopes, secret)
+            mutableState.update { state ->
+                val knownIds = state.messages.mapTo(mutableSetOf(), InboxMessage::publicId)
+                state.copy(
+                    messages = state.messages + olderMessages.filterNot { it.publicId in knownIds },
+                    historyNextCursor = page.nextCursor,
+                    historyLoadingMore = false,
+                )
+            }
+        } catch (error: Exception) {
+            mutableState.update {
+                it.copy(historyLoadingMore = false, error = messageFor(error))
+            }
+        }
+    }
 
     fun acceptNotification(id: String) = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
@@ -416,32 +448,27 @@ class VeejrViewModel(
             val groups = manager.groups()
             val policies = manager.messageDeliveryPolicies()
             val history = manager.messageHistory()
-            val messages = withContext(Dispatchers.Default) {
-                history.envelopes.mapNotNull { envelope ->
-                    identityCoordinator.openMessagePayload(envelope, secret)?.let { opened ->
-                        InboxMessage(
-                            publicId = envelope.publicId,
-                            senderHandle = if (envelope.sentByMe) "You" else envelope.sender.handle,
-                            text = opened.text,
-                            createdAt = envelope.createdAt,
-                            recipientHandles = opened.recipientHandles,
-                            sentByMe = envelope.sentByMe,
-                            kind = opened.kind,
-                            title = opened.title,
-                            latitude = opened.latitude,
-                            longitude = opened.longitude,
-                        )
-                    }
+            val messages = openHistory(history.envelopes, secret)
+            mutableState.update { state ->
+                val refreshedIds = messages.mapTo(mutableSetOf(), InboxMessage::publicId)
+                val mergedMessages = if (state.historyLoaded) {
+                    messages + state.messages.filterNot { it.publicId in refreshedIds }
+                } else {
+                    messages
                 }
-            }
-            mutableState.update {
-                it.copy(
+                state.copy(
                     loading = false,
                     notifications = notifications,
                     contacts = contacts,
                     groups = groups,
                     deliveryPolicies = policies,
-                    messages = messages,
+                    messages = mergedMessages,
+                    historyNextCursor = if (state.historyLoaded) {
+                        state.historyNextCursor
+                    } else {
+                        history.nextCursor
+                    },
+                    historyLoaded = true,
                 )
             }
         } catch (error: Exception) {
@@ -451,6 +478,26 @@ class VeejrViewModel(
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         }
     }
+
+    private suspend fun openHistory(envelopes: List<Envelope>, secret: ByteArray): List<InboxMessage> =
+        withContext(Dispatchers.Default) {
+            envelopes.mapNotNull { envelope ->
+                identityCoordinator.openMessagePayload(envelope, secret)?.let { opened ->
+                    InboxMessage(
+                        publicId = envelope.publicId,
+                        senderHandle = if (envelope.sentByMe) "You" else envelope.sender.handle,
+                        text = opened.text,
+                        createdAt = envelope.createdAt,
+                        recipientHandles = opened.recipientHandles,
+                        sentByMe = envelope.sentByMe,
+                        kind = opened.kind,
+                        title = opened.title,
+                        latitude = opened.latitude,
+                        longitude = opened.longitude,
+                    )
+                }
+            }
+        }
 
     private fun idempotencyKey(): String = ByteArray(16)
         .also(SecureRandom()::nextBytes)

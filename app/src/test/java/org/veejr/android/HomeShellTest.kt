@@ -38,6 +38,15 @@ class HomeShellTest {
         assertEquals(listOf(oldest, newest), conversationTimeline(listOf(newest, oldest), bob))
     }
 
+    @Test
+    fun `sent message labels omit the readable self copy`() {
+        val toBob = message("bob", listOf("@alice", "@bob"))
+        val toSelf = message("self", listOf("@alice"))
+
+        assertEquals("To @bob", messageDirectionLabel(toBob, "@alice"))
+        assertEquals("To yourself", messageDirectionLabel(toSelf, "@alice"))
+    }
+
     private fun message(
         id: String,
         recipients: List<String>,
