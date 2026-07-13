@@ -217,7 +217,7 @@ private fun InstanceScreen(state: AppUiState, onConnect: (String) -> Unit) {
         if (BuildConfig.DEBUG) {
             "http://127.0.0.1:4000"
         } else {
-            ""
+            BuildConfig.DEFAULT_INSTANCE_URL
         }
     var endpoint by remember(state.endpoint) {
         mutableStateOf(state.endpoint.ifBlank { defaultEndpoint })

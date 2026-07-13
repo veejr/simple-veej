@@ -4,6 +4,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import java.util.Properties
+
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = rootProject.file("keystore.properties")
+
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.inputStream().use(releaseSigningProperties::load)
+}
+
 android {
     namespace = "org.veejr.android"
     compileSdk = 35
@@ -14,9 +23,21 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-alpha01"
+        buildConfigField("String", "DEFAULT_INSTANCE_URL", "\"https://veejr.dyndns-server.com\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseSigningPropertiesFile.exists()) {
+                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +46,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

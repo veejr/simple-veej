@@ -84,6 +84,35 @@ The debug app defaults to `http://127.0.0.1:4000`. HTTP is accepted only by
 debug builds; release builds require HTTPS and disable Android cleartext
 traffic.
 
+## Production release
+
+The release variant defaults to `https://veejr.dyndns-server.com` and accepts
+only HTTPS instance URLs. Before distributing it, verify that
+`https://veejr.dyndns-server.com/api/v1/capabilities` is reachable from a
+phone on the public internet.
+
+Release signing is local-only. Copy `keystore.properties.example` to
+`keystore.properties`, point it at the release keystore, and keep both files
+backed up outside the repository. They are deliberately ignored by Git;
+losing the signing key prevents publishing future updates with the same app
+identity.
+
+Build a signed installable APK:
+
+```sh
+./gradlew assembleRelease
+```
+
+Build the signed Android App Bundle required by Google Play:
+
+```sh
+./gradlew bundleRelease
+```
+
+Artifacts are written to `app/build/outputs/apk/release/` and
+`app/build/outputs/bundle/release/` respectively. Do not distribute until the
+signed release can connect and sign in against the production instance.
+
 Verify the active mapping with:
 
 ```sh
