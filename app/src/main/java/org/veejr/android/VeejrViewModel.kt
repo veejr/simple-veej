@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,6 +80,7 @@ class VeejrViewModel(
         )
     },
 ) : ViewModel() {
+    private val messageSendInFlight = AtomicBoolean(false)
     private val mutableState = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
     private var sessionManager: AuthSessionManager? = null
@@ -317,10 +319,13 @@ class VeejrViewModel(
         text: String,
         attachments: List<OutgoingAttachment> = emptyList(),
     ) = viewModelScope.launch {
-        val manager = sessionManager ?: return@launch
-        val secret = identitySecret ?: return@launch
+        if (!messageSendInFlight.compareAndSet(false, true)) return@launch
+
         mutableState.update { it.copy(loading = true, error = null) }
         try {
+            val manager = requireNotNull(sessionManager) { "Your session is no longer available." }
+            val secret = requireNotNull(identitySecret) { "Unlock your encryption keys before sending." }
+            val account = requireNotNull(mutableState.value.account) { "Your account is no longer available." }
             require(text.isNotBlank() || attachments.isNotEmpty()) { "A message cannot be empty." }
             val resolved = manager.resolveRecipients(subjectType, subjectId)
             require(resolved.missingKeys.isEmpty()) { "A recipient has not configured encryption keys." }
@@ -361,9 +366,10 @@ class VeejrViewModel(
                     attachmentDescriptors,
                 )
             }
-            manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
+            val batch = manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
+            val selfCopyId = batch.copies.firstOrNull { it.recipientId == account.id }?.publicId
             val message = InboxMessage(
-                publicId = "local-${System.nanoTime()}",
+                publicId = selfCopyId ?: "local-${System.nanoTime()}",
                 senderHandle = "You",
                 text = text.trim(),
                 createdAt = java.time.Instant.now().toString(),
@@ -378,6 +384,7 @@ class VeejrViewModel(
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         } finally {
             attachments.forEach { it.bytes.fill(0) }
+            messageSendInFlight.set(false)
         }
     }
 

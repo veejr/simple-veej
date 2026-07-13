@@ -250,6 +250,7 @@ class VeejrViewModelTest {
 
         viewModel.sendMessage("self", ACCOUNT.id, "Remember this").join()
 
+        assertEquals("self-copy", viewModel.state.value.messages.first().publicId)
         assertEquals(listOf(ACCOUNT.handle), viewModel.state.value.messages.first().recipientHandles)
         assertEquals("Remember this", viewModel.state.value.messages.first().text)
         assertEquals(1, api.sentBatch?.envelopes?.size)
@@ -452,7 +453,11 @@ class VeejrViewModelTest {
             request: MessageBatchRequest,
         ): MessageBatchResponse {
             sentBatch = request
-            return MessageBatchResponse("batch", emptyList(), emptyList())
+            return MessageBatchResponse(
+                "batch",
+                listOf(org.veejr.core.network.MessageCopy(ACCOUNT.id, "self-copy")),
+                emptyList(),
+            )
         }
         override suspend fun messageHistory(accessToken: String, cursor: String?, kind: String?) =
             historyPages[cursor].also { historyCursors += cursor } ?: EnvelopePage(emptyList())

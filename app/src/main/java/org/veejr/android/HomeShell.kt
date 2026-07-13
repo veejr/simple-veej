@@ -1,16 +1,18 @@
 package org.veejr.android
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
 import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -78,6 +81,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Mic
@@ -89,8 +93,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.core.content.FileProvider
-
 private enum class HomeTab(val title: String, val icon: ImageVector) {
     MESSAGES("Messages", Icons.AutoMirrored.Outlined.Chat),
     CONTACTS("Contacts", Icons.Outlined.People),
@@ -308,8 +310,10 @@ private fun ConversationScreen(
     }
     var attachmentError by remember(conversation.id) { mutableStateOf<String?>(null) }
     var preparingAttachments by remember(conversation.id) { mutableStateOf(false) }
+    var recording by remember(conversation.id) { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val voiceRecorder = remember(conversation.id) { VoiceRecorder(context.applicationContext) }
     val attachmentPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
@@ -323,17 +327,23 @@ private fun ConversationScreen(
             null
         }
     }
-    val audioRecorder = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.data?.let { uri ->
-                selectedAttachment(context, uri, "audio/*")?.let { audio ->
-                    selectedAttachments = (selectedAttachments + audio)
-                        .distinctBy { it.uri }
-                        .take(MAX_ATTACHMENTS_PER_MESSAGE)
-                }
+    fun startVoiceRecording() {
+        runCatching { voiceRecorder.start() }
+            .onSuccess {
+                recording = true
+                attachmentError = null
             }
+            .onFailure { error ->
+                attachmentError = error.message ?: "The microphone could not be started."
+            }
+    }
+    val microphonePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startVoiceRecording()
+        } else {
+            attachmentError = "Microphone permission is required to record audio."
         }
     }
     val visibleMessages = conversationTimeline(state.messages, conversation)
@@ -342,6 +352,9 @@ private fun ConversationScreen(
 
     LaunchedEffect(conversation.id, visibleMessages.size, draft, selectedAttachments.size) {
         listState.scrollToItem(composerIndex)
+    }
+    DisposableEffect(conversation.id) {
+        onDispose { voiceRecorder.cancel() }
     }
 
     LazyColumn(
@@ -421,16 +434,47 @@ private fun ConversationScreen(
                         }
                         IconButton(
                             onClick = {
-                                val intent = Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION)
-                                if (intent.resolveActivity(context.packageManager) != null) {
-                                    audioRecorder.launch(intent)
+                                if (recording) {
+                                    runCatching { voiceRecorder.stop() }
+                                        .onSuccess { file ->
+                                            val uri = FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.attachments",
+                                                file,
+                                            )
+                                            val audio = SelectedAttachment(
+                                                uri = uri,
+                                                name = file.name,
+                                                mime = "audio/mp4",
+                                                size = file.length(),
+                                            )
+                                            selectedAttachments = (selectedAttachments + audio)
+                                                .distinctBy { it.uri }
+                                                .take(MAX_ATTACHMENTS_PER_MESSAGE)
+                                            attachmentError = null
+                                        }
+                                        .onFailure { error ->
+                                            attachmentError = error.message ?: "The recording could not be saved."
+                                        }
+                                    recording = false
+                                } else if (
+                                    ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    startVoiceRecording()
                                 } else {
-                                    attachmentError = "No audio recorder is installed on this device."
+                                    microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                                 }
                             },
                             enabled = !state.loading && !preparingAttachments,
                         ) {
-                            Icon(Icons.Outlined.Mic, contentDescription = "Record audio")
+                            Icon(
+                                if (recording) Icons.Outlined.Stop else Icons.Outlined.Mic,
+                                contentDescription = if (recording) "Stop recording" else "Record audio",
+                                tint = if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            )
                         }
                         OutlinedTextField(
                             value = draft,
@@ -482,6 +526,14 @@ private fun ConversationScreen(
                     attachmentError?.let { message ->
                         Text(
                             message,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (recording) {
+                        Text(
+                            "Recording voice message… tap stop when finished.",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error,

@@ -3,4 +3,7 @@
     <cache-path
         name="opened_attachments"
         path="opened-attachments/" />
+    <cache-path
+        name="voice_recordings"
+        path="voice-recordings/" />
 </paths>
