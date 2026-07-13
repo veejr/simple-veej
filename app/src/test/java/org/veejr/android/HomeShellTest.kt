@@ -29,15 +29,25 @@ class HomeShellTest {
         assertEquals(listOf(toBob), messagesForConversation(listOf(toBob, selfOnly), bob))
     }
 
+    @Test
+    fun `conversation timeline places the newest message at the bottom`() {
+        val bob = ConversationTarget("contact", "7", "@bob", setOf("@bob"))
+        val newest = message("newest", listOf("@alice", "@bob"), "2026-07-13T12:05:00Z")
+        val oldest = message("oldest", listOf("@alice", "@bob"), "2026-07-13T12:00:00Z")
+
+        assertEquals(listOf(oldest, newest), conversationTimeline(listOf(newest, oldest), bob))
+    }
+
     private fun message(
         id: String,
         recipients: List<String>,
+        createdAt: String = "2026-07-13T12:00:00Z",
         sentByMe: Boolean = true,
     ) = InboxMessage(
         publicId = id,
         senderHandle = if (sentByMe) "You" else "@bob",
         text = id,
-        createdAt = "2026-07-13T12:00:00Z",
+        createdAt = createdAt,
         recipientHandles = recipients,
         sentByMe = sentByMe,
     )

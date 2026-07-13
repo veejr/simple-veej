@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -244,9 +245,17 @@ private fun ConversationScreen(
     onSend: (String, String, String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
-    val visibleMessages = messagesForConversation(state.messages, conversation)
+    val visibleMessages = conversationTimeline(state.messages, conversation)
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(conversation.id, visibleMessages.size) {
+        if (visibleMessages.isNotEmpty()) {
+            listState.scrollToItem(visibleMessages.size + 1)
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -276,33 +285,32 @@ private fun ConversationScreen(
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 1.dp,
             ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("New message", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "To ${conversation.title}",
-                        modifier = Modifier.padding(top = 8.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Message") },
+                        minLines = 1,
+                        maxLines = 4,
+                        enabled = !state.loading,
+                        shape = RoundedCornerShape(24.dp),
                     )
-                        OutlinedTextField(
-                            value = draft,
-                            onValueChange = { draft = it },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            placeholder = { Text("Write an encrypted message…") },
-                            minLines = 2,
-                            maxLines = 5,
-                            enabled = !state.loading,
-                        )
-                        Button(
-                            onClick = {
-                                onSend(conversation.subjectType, conversation.id, draft)
-                                draft = ""
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
-                            enabled = draft.isNotBlank() && !state.loading,
-                        ) {
-                            Text("Send to ${conversation.title}")
-                        }
+                    Button(
+                        onClick = {
+                            onSend(conversation.subjectType, conversation.id, draft)
+                            draft = ""
+                        },
+                        modifier = Modifier.padding(start = 8.dp).height(56.dp).widthIn(min = 72.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        enabled = draft.isNotBlank() && !state.loading,
+                    ) {
+                        Text("Send")
+                    }
                 }
             }
         }
@@ -486,6 +494,11 @@ internal fun messagesForConversation(
         message.senderHandle in conversation.memberHandles
     }
 }
+
+internal fun conversationTimeline(
+    messages: List<InboxMessage>,
+    conversation: ConversationTarget,
+): List<InboxMessage> = messagesForConversation(messages, conversation).sortedBy(InboxMessage::createdAt)
 
 private fun messagePreview(message: InboxMessage): String = when (message.kind) {
     "location" -> "📍 ${message.text.ifBlank { "Shared a location" }}"
