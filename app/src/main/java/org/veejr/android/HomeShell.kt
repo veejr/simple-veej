@@ -66,11 +66,12 @@ private enum class HomeTab(val title: String, val icon: ImageVector) {
     ACCOUNT("Account", Icons.Outlined.Settings),
 }
 
-private data class ConversationTarget(
+internal data class ConversationTarget(
     val subjectType: String,
     val id: String,
     val title: String,
     val memberHandles: Set<String>,
+    val initials: String? = null,
 )
 
 @Composable
@@ -90,6 +91,9 @@ fun HomeScreen(
     var conversationType by rememberSaveable { mutableStateOf<String?>(null) }
     var conversationId by rememberSaveable { mutableStateOf<String?>(null) }
     val conversation = when (conversationType) {
+        "self" -> state.account?.takeIf { it.id == conversationId }?.let {
+            ConversationTarget("self", it.id, "Notes to yourself", setOf(it.handle), "ME")
+        }
         "contact" -> state.contacts.firstOrNull { it.id == conversationId }?.let {
             ConversationTarget("contact", it.id, it.handle, setOf(it.handle))
         }
@@ -323,6 +327,17 @@ private fun MessagesScreen(
     onOpenConversation: (String, String) -> Unit,
 ) {
     val conversations = buildList {
+        state.account?.let { account ->
+            add(
+                ConversationTarget(
+                    "self",
+                    account.id,
+                    "Notes to yourself",
+                    setOf(account.handle),
+                    "ME",
+                ),
+            )
+        }
         state.contacts.forEach { contact ->
             add(ConversationTarget("contact", contact.id, contact.handle, setOf(contact.handle)))
         }
@@ -336,9 +351,12 @@ private fun MessagesScreen(
                 ),
             )
         }
-    }.sortedByDescending { target ->
-        messagesForConversation(state.messages, target).firstOrNull()?.createdAt.orEmpty()
-    }
+    }.sortedWith(
+        compareByDescending<ConversationTarget> { it.subjectType == "self" }
+            .thenByDescending { target ->
+                messagesForConversation(state.messages, target).firstOrNull()?.createdAt.orEmpty()
+            },
+    )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -386,7 +404,7 @@ private fun MessagesScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(target.title)
+                Avatar(target.title, target.initials)
                 Column(Modifier.weight(1f).padding(start = 13.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
@@ -455,11 +473,13 @@ private fun HistoryScreen(state: AppUiState, padding: PaddingValues) {
     }
 }
 
-private fun messagesForConversation(
+internal fun messagesForConversation(
     messages: List<InboxMessage>,
     conversation: ConversationTarget,
 ): List<InboxMessage> = messages.filter { message ->
-    if (message.sentByMe) {
+    if (conversation.subjectType == "self") {
+        message.sentByMe && message.recipientHandles.toSet() == conversation.memberHandles
+    } else if (message.sentByMe) {
         conversation.memberHandles.isNotEmpty() &&
             conversation.memberHandles.all(message.recipientHandles::contains)
     } else {
@@ -848,10 +868,10 @@ private fun MessageBubble(message: InboxMessage) {
 }
 
 @Composable
-private fun Avatar(handle: String) {
+private fun Avatar(handle: String, initials: String? = null) {
     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
         Box(Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
-            Text(handle.trimStart('@').take(1).uppercase(), fontWeight = FontWeight.Black)
+            Text(initials ?: handle.trimStart('@').take(1).uppercase(), fontWeight = FontWeight.Black)
         }
     }
 }

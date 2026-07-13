@@ -271,7 +271,13 @@ class VeejrViewModel(
         try {
             val resolved = manager.resolveRecipients(subjectType, subjectId)
             require(resolved.missingKeys.isEmpty()) { "A recipient has not configured encryption keys." }
-            require(resolved.recipients.size >= 2) { "The recipient is no longer available." }
+            if (subjectType == "self") {
+                require(resolved.recipients.size == 1 && resolved.recipients.single().id == subjectId) {
+                    "This account is no longer available."
+                }
+            } else {
+                require(resolved.recipients.size >= 2) { "The recipient is no longer available." }
+            }
             val envelopes = withContext(Dispatchers.Default) {
                 identityCoordinator.sealMessage(text.trim(), resolved.recipients, secret)
             }

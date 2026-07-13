@@ -190,6 +190,22 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `notes to yourself sends one encrypted self envelope`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi()
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+        api.resolveToSelf = true
+
+        viewModel.sendMessage("self", ACCOUNT.id, "Remember this").join()
+
+        assertEquals(listOf(ACCOUNT.handle), viewModel.state.value.messages.first().recipientHandles)
+        assertEquals("Remember this", viewModel.state.value.messages.first().text)
+        assertEquals(1, api.sentBatch?.envelopes?.size)
+    }
+
+    @Test
     fun `logout returns to login and clears tokens`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val viewModel = viewModel(storage, FakeApi())
@@ -221,6 +237,8 @@ class VeejrViewModelTest {
         var keySetupRequest: KeySetupRequest? = null
         var notifications: List<PendingNotification> = emptyList()
         var contacts: List<Recipient> = emptyList()
+        var resolveToSelf = false
+        var sentBatch: MessageBatchRequest? = null
         var policyUpdate: Pair<String, String>? = null
         var policies: List<MessageDeliveryPolicy> = emptyList()
         val declinedIds = mutableListOf<String>()
@@ -313,13 +331,30 @@ class VeejrViewModelTest {
         override suspend fun resolveRecipients(
             accessToken: String,
             request: ResolveRecipientsRequest,
-        ) = ResolveRecipientsResponse(emptyList(), emptyList())
+        ) = if (resolveToSelf) {
+            ResolveRecipientsResponse(
+                listOf(
+                    Recipient(
+                        ACCOUNT.id,
+                        ACCOUNT.username,
+                        ACCOUNT.handle,
+                        checkNotNull(keySetupRequest).publicKey,
+                    ),
+                ),
+                emptyList(),
+            )
+        } else {
+            ResolveRecipientsResponse(emptyList(), emptyList())
+        }
 
         override suspend fun sendMessageBatch(
             accessToken: String,
             idempotencyKey: String,
             request: MessageBatchRequest,
-        ): MessageBatchResponse = error("not used")
+        ): MessageBatchResponse {
+            sentBatch = request
+            return MessageBatchResponse("batch", emptyList(), emptyList())
+        }
         override suspend fun messageHistory(accessToken: String, cursor: String?, kind: String?) =
             EnvelopePage(emptyList())
         override suspend fun logout(accessToken: String) = Unit
