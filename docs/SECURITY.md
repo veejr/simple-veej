@@ -18,8 +18,9 @@ wrapped using the protocol-defined passphrase format. A future device-local
 copy may be additionally protected by Android Keystore but must not replace the
 portable representation.
 
-Debug builds alone permit cleartext instance URLs so an Android emulator can
-reach a developer's Phoenix server at `http://10.0.2.2:4000`. The debug
+Debug builds alone permit cleartext instance URLs so an Android device using
+ADB port reversal can reach a developer's Phoenix server at
+`http://127.0.0.1:4000`. The debug
 manifest enables cleartext traffic and the debug URL parser permits HTTP;
 release variants disable both controls and continue to require HTTPS.
 
@@ -56,3 +57,13 @@ Concurrent requests share a single refresh-token rotation. A rejected refresh
 clears the local session, and logout clears local tokens even when the server
 cannot be reached. The production `SessionTokenStore` must encrypt persisted
 tokens with an Android Keystore-protected key.
+
+Attachment upload requests use the account bearer token and a fresh idempotency
+key. Public attachment capability downloads never receive account bearer
+tokens. Blob redirects are disabled, origins cannot contain credentials or
+paths, and an HTTPS app accepts only HTTPS attachment origins. Local debug
+aliases (`localhost`, `127.0.0.1`, and `10.0.2.2`) are resolved back to the
+selected instance when their port matches. Attachment ciphertext is capped at
+the server's 25 MB limit and is authenticated with XSalsa20-Poly1305 before use.
+Decrypted viewer cache files are app-private, shared only through read-only
+`FileProvider` grants, and cleared on startup, logout, and instance change.

@@ -8,6 +8,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -148,6 +149,81 @@ class VeejrApiClientTest {
             assertEquals("GET", request.method)
             assertEquals("/api/v1/envelopes", request.path)
             assertEquals("Bearer access-secret", request.getHeader("Authorization"))
+        }
+    }
+
+    @Test
+    fun `downloads an encrypted attachment from its public capability URL`() = runBlocking<Unit> {
+        val ciphertext = byteArrayOf(1, 2, 3, 4)
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/octet-stream")
+                .setBody(okio.Buffer().write(ciphertext)),
+        )
+
+        val result = api.attachmentBlob(
+            origin = server.url("/").toString().trimEnd('/'),
+            id = "abcdefghijklmnop",
+        )
+
+        assertArrayEquals(ciphertext, result)
+        server.takeRequest().also { request ->
+            assertEquals("GET", request.method)
+            assertEquals("/api/blobs/abcdefghijklmnop", request.path)
+            assertEquals("application/octet-stream", request.getHeader("Accept"))
+            assertEquals(null, request.getHeader("Authorization"))
+        }
+    }
+
+    @Test
+    fun `rewrites legacy local attachment origins to the selected debug instance`() = runBlocking<Unit> {
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(9, 8, 7))))
+
+        api.attachmentBlob("http://10.0.2.2:${server.port}", "abcdefghijklmnop")
+
+        assertEquals("/api/blobs/abcdefghijklmnop", server.takeRequest().path)
+    }
+
+    @Test
+    fun `retries a missing attachment from another local dev port on the selected instance`() = runBlocking<Unit> {
+        val otherInstance = MockWebServer()
+        otherInstance.start()
+
+        try {
+            otherInstance.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(byteArrayOf(9, 8, 7))))
+
+            val bytes = api.attachmentBlob(
+                otherInstance.url("/").toString().trimEnd('/'),
+                "abcdefghijklmnop",
+            )
+
+            assertArrayEquals(byteArrayOf(9, 8, 7), bytes)
+            assertEquals("/api/blobs/abcdefghijklmnop", otherInstance.takeRequest().path)
+            assertEquals("/api/blobs/abcdefghijklmnop", server.takeRequest().path)
+        } finally {
+            otherInstance.shutdown()
+        }
+    }
+
+    @Test
+    fun `uploads encrypted attachment bytes with bearer authentication`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse("""{"id":"abcdefghijklmnop","size":4}"""))
+
+        val response = api.uploadBlob(
+            "access-secret",
+            "abcdefghijklmnopqrstuv",
+            byteArrayOf(1, 2, 3, 4),
+        )
+
+        assertEquals("abcdefghijklmnop", response.id)
+        server.takeRequest().also { request ->
+            assertEquals("POST", request.method)
+            assertEquals("/api/v1/blobs", request.path)
+            assertEquals("Bearer access-secret", request.getHeader("Authorization"))
+            assertEquals("abcdefghijklmnopqrstuv", request.getHeader("Idempotency-Key"))
+            assertEquals("application/octet-stream", request.getHeader("Content-Type"))
+            assertArrayEquals(byteArrayOf(1, 2, 3, 4), request.body.readByteArray())
         }
     }
 

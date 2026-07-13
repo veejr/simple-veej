@@ -125,6 +125,9 @@ data class EnvelopePage(
 )
 
 @Serializable
+data class BlobUploadResponse(val id: String, val size: Long)
+
+@Serializable
 data class Recipient(
     val id: String,
     val username: String,

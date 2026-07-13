@@ -1,6 +1,8 @@
 package org.veejr.android
 
 import android.os.Bundle
+import android.content.Context
+import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -35,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +51,7 @@ import androidx.core.view.WindowCompat
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        clearOpenedAttachmentCache(this)
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = true
@@ -65,6 +69,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun VeejrApp(viewModel: VeejrViewModel) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
     VeejrTheme {
         Scaffold(containerColor = MaterialTheme.colorScheme.background) { innerPadding ->
             Box(
@@ -94,8 +99,15 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onSetDeliveryPolicy = viewModel::setDeliveryPolicy,
                             onSavePrivateNote = viewModel::savePrivateNote,
                             onLoadMoreHistory = viewModel::loadMoreHistory,
-                            onLogout = viewModel::logout,
-                            onChangeInstance = viewModel::changeInstance,
+                            onOpenAttachment = viewModel::openAttachment,
+                            onLogout = {
+                                clearOpenedAttachmentCache(context)
+                                viewModel.logout()
+                            },
+                            onChangeInstance = {
+                                clearOpenedAttachmentCache(context)
+                                viewModel.changeInstance()
+                            },
                         )
                     }
                 }
@@ -112,6 +124,11 @@ fun VeejrApp(viewModel: VeejrViewModel) {
             }
         }
     }
+
+}
+
+private fun clearOpenedAttachmentCache(context: Context) {
+    File(context.cacheDir, "opened-attachments").deleteRecursively()
 }
 
 @Composable
@@ -196,7 +213,15 @@ private fun SecretField(
 
 @Composable
 private fun InstanceScreen(state: AppUiState, onConnect: (String) -> Unit) {
-    var endpoint by remember { mutableStateOf(state.endpoint) }
+    val defaultEndpoint =
+        if (BuildConfig.DEBUG) {
+            "http://127.0.0.1:4000"
+        } else {
+            ""
+        }
+    var endpoint by remember(state.endpoint) {
+        mutableStateOf(state.endpoint.ifBlank { defaultEndpoint })
+    }
     AppCard {
         BrandHeader("Connect your instance", "Your conversations stay on the server you choose.")
         Spacer(Modifier.height(28.dp))
@@ -221,7 +246,7 @@ private fun InstanceScreen(state: AppUiState, onConnect: (String) -> Unit) {
         }
         Text(
             text = if (BuildConfig.DEBUG) {
-                "Local emulator: use http://10.0.2.2:4000. HTTPS remains required in release builds."
+                "Local debug server: http://127.0.0.1:4000. Run adb reverse tcp:4000 tcp:4000 first."
             } else {
                 "HTTPS is required. veejr checks compatibility before sending credentials."
             },

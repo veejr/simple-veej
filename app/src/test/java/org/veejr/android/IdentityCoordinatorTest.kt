@@ -2,6 +2,7 @@ package org.veejr.android
 
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -109,6 +110,60 @@ class IdentityCoordinatorTest {
         assertEquals(52.52, checkNotNull(opened).latitude!!, 0.0)
         assertEquals(13.405, opened.longitude!!, 0.0)
         assertEquals(listOf("@bob"), opened.recipientHandles)
+        prepared.secretKey.fill(0)
+    }
+
+    @Test
+    fun `opens protocol v1 attachment descriptors and authenticates their ciphertext`() {
+        val coordinator = IdentityCoordinator()
+        val crypto = VeejrCrypto()
+        val prepared = coordinator.prepare("correct horse".toCharArray())
+        val publicKey = java.util.Base64.getDecoder().decode(prepared.request.publicKey)
+        val attachmentPlaintext = "private image bytes".toByteArray()
+        val attachmentKey = ByteArray(32) { it.toByte() }
+        val attachmentSealed = crypto.sealSecretBox(attachmentPlaintext, attachmentKey)
+        val encode = java.util.Base64.getEncoder()::encodeToString
+        val payload = """{
+            "v":1,
+            "kind":"message",
+            "text":"photo",
+            "attachments":[{
+                "id":"abcdefghijklmnop",
+                "origin":"https://chat.example",
+                "key":"${encode(attachmentKey)}",
+                "nonce":"${encode(attachmentSealed.nonce)}",
+                "name":"photo.jpg",
+                "mime":"image/jpeg",
+                "size":19
+            }]
+        }""".trimIndent().toByteArray()
+        val envelopeSealed = crypto.sealBox(payload, publicKey, prepared.secretKey)
+        val envelope = Envelope(
+            publicId = "attachment-message",
+            batchId = "batch",
+            kind = "message",
+            ciphertext = encode(envelopeSealed.ciphertext),
+            nonce = encode(envelopeSealed.nonce),
+            peerKey = prepared.request.publicKey,
+            sender = SenderSummary("42", "@alice"),
+            sentByMe = true,
+            resealed = false,
+            createdAt = "2026-07-12T20:00:00Z",
+            displayCount = 0,
+        )
+
+        val attachment = coordinator.openMessagePayload(envelope, prepared.secretKey)
+            ?.attachments
+            ?.single()
+
+        assertEquals("photo.jpg", attachment?.name)
+        assertEquals("image/jpeg", attachment?.mime)
+        assertArrayEquals(
+            attachmentPlaintext,
+            coordinator.openAttachment(attachmentSealed.ciphertext, checkNotNull(attachment)),
+        )
+        attachmentPlaintext.fill(0)
+        attachmentKey.fill(0)
         prepared.secretKey.fill(0)
     }
 

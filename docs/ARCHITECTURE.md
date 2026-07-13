@@ -62,6 +62,23 @@ releases its encrypted envelope, which Android authenticates and decrypts in
 memory using the unlocked identity; declining removes the pending item without
 fetching content. Plaintext messages remain in process memory only.
 
+Attachment descriptors are recovered from that encrypted payload. Android
+downloads the referenced opaque ciphertext through its unguessable capability
+URL only after a user requests it, enforces the server's 25 MB encrypted-blob
+limit, and authenticates it locally with the descriptor's secretbox key and
+nonce. Decrypted bytes remain in ViewModel memory. Opening a non-image file
+creates an app-private cache copy exposed to the selected Android viewer through
+a temporary, read-only `FileProvider` URI; those cache files are removed on app
+startup, logout, and instance change.
+
+The conversation composer uses Android's document picker and system audio
+recorder. Selected bytes are read off the UI thread, limited to ten files and
+the advertised blob-size boundary, secretboxed with independent random keys,
+and uploaded through the bearer-authenticated, idempotent `/api/v1/blobs`
+endpoint. Only the returned capability ID and encrypted descriptor are placed
+in the recipient envelopes. Source byte arrays and temporary secretbox material
+are zeroed after the send attempt.
+
 The text composer resolves an accepted friend together with the sender's
 self-copy, serializes one protocol-v1 payload, and seals it independently to
 each public key. A fresh 128-bit idempotency key accompanies every batch so a

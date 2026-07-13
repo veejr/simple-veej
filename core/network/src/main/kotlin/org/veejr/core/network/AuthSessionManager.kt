@@ -97,6 +97,12 @@ class AuthSessionManager(
     suspend fun messageHistory(cursor: String? = null, kind: String? = null): EnvelopePage =
         withAccessToken { accessToken -> api.messageHistory(accessToken, cursor, kind) }
 
+    suspend fun attachmentBlob(origin: String?, id: String): ByteArray =
+        api.attachmentBlob(origin, id)
+
+    suspend fun uploadBlob(idempotencyKey: String, ciphertext: ByteArray): BlobUploadResponse =
+        withAccessToken { accessToken -> api.uploadBlob(accessToken, idempotencyKey, ciphertext) }
+
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 
     suspend fun logout() {

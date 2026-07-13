@@ -44,6 +44,9 @@ data class AppUiState(
     val historyNextCursor: String? = null,
     val historyLoadingMore: Boolean = false,
     val historyLoaded: Boolean = false,
+    val openedAttachments: Map<String, OpenedAttachment> = emptyMap(),
+    val attachmentLoadingIds: Set<String> = emptySet(),
+    val attachmentErrors: Map<String, String> = emptyMap(),
 )
 
 data class InboxMessage(
@@ -57,6 +60,12 @@ data class InboxMessage(
     val title: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val attachments: List<MessageAttachment> = emptyList(),
+)
+
+data class OpenedAttachment(
+    val attachment: MessageAttachment,
+    val bytes: ByteArray,
 )
 
 class VeejrViewModel(
@@ -124,6 +133,7 @@ class VeejrViewModel(
     fun logout() = viewModelScope.launch {
         mutableState.update { it.copy(loading = true, error = null) }
         runCatching { sessionManager?.logout() }
+        clearOpenedAttachments()
         clearIdentity()
         mutableState.update {
             it.copy(
@@ -138,6 +148,9 @@ class VeejrViewModel(
                 historyNextCursor = null,
                 historyLoadingMore = false,
                 historyLoaded = false,
+                openedAttachments = emptyMap(),
+                attachmentLoadingIds = emptySet(),
+                attachmentErrors = emptyMap(),
             )
         }
     }
@@ -147,6 +160,7 @@ class VeejrViewModel(
         storage.clear()
         storage.endpoint = null
         sessionManager = null
+        clearOpenedAttachments()
         clearIdentity()
         mutableState.value = AppUiState(loading = false)
     }
@@ -266,6 +280,7 @@ class VeejrViewModel(
                     title = opened.title,
                     latitude = opened.latitude,
                     longitude = opened.longitude,
+                    attachments = opened.attachments,
                 )
                 mutableState.update {
                     it.copy(
@@ -296,11 +311,17 @@ class VeejrViewModel(
         }
     }
 
-    fun sendMessage(subjectType: String, subjectId: String, text: String) = viewModelScope.launch {
+    fun sendMessage(
+        subjectType: String,
+        subjectId: String,
+        text: String,
+        attachments: List<OutgoingAttachment> = emptyList(),
+    ) = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
         val secret = identitySecret ?: return@launch
         mutableState.update { it.copy(loading = true, error = null) }
         try {
+            require(text.isNotBlank() || attachments.isNotEmpty()) { "A message cannot be empty." }
             val resolved = manager.resolveRecipients(subjectType, subjectId)
             require(resolved.missingKeys.isEmpty()) { "A recipient has not configured encryption keys." }
             if (subjectType == "self") {
@@ -310,8 +331,35 @@ class VeejrViewModel(
             } else {
                 require(resolved.recipients.size >= 2) { "The recipient is no longer available." }
             }
+            val attachmentDescriptors = attachments.map { attachment ->
+                val encrypted = withContext(Dispatchers.Default) {
+                    identityCoordinator.encryptAttachment(attachment)
+                }
+                try {
+                    val blob = manager.uploadBlob(idempotencyKey(), encrypted.ciphertext)
+                    MessageAttachment(
+                        id = blob.id,
+                        origin = storage.endpoint,
+                        key = Base64.getEncoder().encodeToString(encrypted.key),
+                        nonce = Base64.getEncoder().encodeToString(encrypted.nonce),
+                        name = encrypted.name,
+                        mime = encrypted.mime,
+                        size = encrypted.size,
+                        durationMs = encrypted.durationMs,
+                    )
+                } finally {
+                    encrypted.ciphertext.fill(0)
+                    encrypted.key.fill(0)
+                    encrypted.nonce.fill(0)
+                }
+            }
             val envelopes = withContext(Dispatchers.Default) {
-                identityCoordinator.sealMessage(text.trim(), resolved.recipients, secret)
+                identityCoordinator.sealMessage(
+                    text.trim(),
+                    resolved.recipients,
+                    secret,
+                    attachmentDescriptors,
+                )
             }
             manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
             val message = InboxMessage(
@@ -321,12 +369,15 @@ class VeejrViewModel(
                 createdAt = java.time.Instant.now().toString(),
                 recipientHandles = resolved.recipients.map { it.handle },
                 sentByMe = true,
+                attachments = attachmentDescriptors,
             )
             mutableState.update {
                 it.copy(loading = false, messages = listOf(message) + it.messages)
             }
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
+        } finally {
+            attachments.forEach { it.bytes.fill(0) }
         }
     }
 
@@ -381,6 +432,46 @@ class VeejrViewModel(
             }
         }
 
+    fun openAttachment(attachment: MessageAttachment) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        if (
+            attachment.id in mutableState.value.openedAttachments ||
+            attachment.id in mutableState.value.attachmentLoadingIds
+        ) return@launch
+
+        mutableState.update {
+            it.copy(
+                attachmentLoadingIds = it.attachmentLoadingIds + attachment.id,
+                attachmentErrors = it.attachmentErrors - attachment.id,
+            )
+        }
+        var ciphertext: ByteArray? = null
+        try {
+            val downloaded = manager.attachmentBlob(attachment.origin, attachment.id)
+            ciphertext = downloaded
+            val plaintext = withContext(Dispatchers.Default) {
+                identityCoordinator.openAttachment(downloaded, attachment)
+            } ?: throw IllegalArgumentException("The attachment could not be authenticated.")
+            mutableState.update {
+                it.copy(
+                    openedAttachments = it.openedAttachments +
+                        (attachment.id to OpenedAttachment(attachment, plaintext)),
+                    attachmentLoadingIds = it.attachmentLoadingIds - attachment.id,
+                )
+            }
+        } catch (error: Exception) {
+            mutableState.update {
+                it.copy(
+                    attachmentLoadingIds = it.attachmentLoadingIds - attachment.id,
+                    attachmentErrors = it.attachmentErrors +
+                        (attachment.id to (error.message ?: "The attachment could not be opened.")),
+                )
+            }
+        } finally {
+            ciphertext?.fill(0)
+        }
+    }
+
     private fun restoreSession() = viewModelScope.launch {
         val storedEndpoint = storage.endpoint
         if (storedEndpoint == null) {
@@ -390,10 +481,12 @@ class VeejrViewModel(
 
         try {
             val endpoint = parseEndpoint(storedEndpoint)
+            val normalizedEndpoint = endpoint.uri.resolve("/").toString().trimEnd('/')
+            if (storage.endpoint != normalizedEndpoint) storage.endpoint = normalizedEndpoint
             val manager = AuthSessionManager(apiFactory(endpoint), storage)
             sessionManager = manager
             if (!manager.hasSession()) {
-                mutableState.value = AppUiState(AppScreen.LOGIN, storedEndpoint, loading = false)
+                mutableState.value = AppUiState(AppScreen.LOGIN, normalizedEndpoint, loading = false)
                 return@launch
             }
             val account = manager.currentAccount()
@@ -422,8 +515,15 @@ class VeejrViewModel(
         else -> "Something went wrong. Please try again."
     }
 
-    private fun parseEndpoint(value: String): ApiEndpoint =
-        ApiEndpoint.parse(value, allowHttp = BuildConfig.DEBUG)
+    private fun parseEndpoint(value: String): ApiEndpoint {
+        val normalizedValue =
+            if (BuildConfig.DEBUG && value.trim().trimEnd('/') == LEGACY_EMULATOR_ENDPOINT) {
+                DEBUG_LOOPBACK_ENDPOINT
+            } else {
+                value
+            }
+        return ApiEndpoint.parse(normalizedValue, allowHttp = BuildConfig.DEBUG)
+    }
 
     private fun showAccount(account: Account) {
         mutableState.value = AppUiState(
@@ -437,6 +537,10 @@ class VeejrViewModel(
     private fun clearIdentity() {
         identitySecret?.fill(0)
         identitySecret = null
+    }
+
+    private fun clearOpenedAttachments() {
+        mutableState.value.openedAttachments.values.forEach { it.bytes.fill(0) }
     }
 
     private suspend fun loadInbox() {
@@ -494,6 +598,7 @@ class VeejrViewModel(
                         title = opened.title,
                         latitude = opened.latitude,
                         longitude = opened.longitude,
+                        attachments = opened.attachments,
                     )
                 }
             }
@@ -504,6 +609,7 @@ class VeejrViewModel(
         .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
     override fun onCleared() {
+        clearOpenedAttachments()
         clearIdentity()
         super.onCleared()
     }
@@ -512,5 +618,10 @@ class VeejrViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             VeejrViewModel(storage) as T
+    }
+
+    private companion object {
+        const val DEBUG_LOOPBACK_ENDPOINT = "http://127.0.0.1:4000"
+        const val LEGACY_EMULATOR_ENDPOINT = "http://10.0.2.2:4000"
     }
 }

@@ -11,6 +11,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.veejr.core.crypto.CryptoBoundary
 import org.veejr.core.crypto.VeejrCrypto
@@ -33,6 +35,35 @@ data class OpenedMessage(
     val title: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val attachments: List<MessageAttachment> = emptyList(),
+)
+
+data class MessageAttachment(
+    val id: String,
+    val origin: String?,
+    val key: String,
+    val nonce: String,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val durationMs: Long? = null,
+)
+
+data class OutgoingAttachment(
+    val name: String,
+    val mime: String,
+    val bytes: ByteArray,
+    val durationMs: Long? = null,
+)
+
+data class EncryptedAttachment(
+    val ciphertext: ByteArray,
+    val key: ByteArray,
+    val nonce: ByteArray,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val durationMs: Long? = null,
 )
 
 class IdentityCoordinator(
@@ -122,6 +153,32 @@ class IdentityCoordinator(
                     recipientHandles = payload["to"]?.jsonArray
                         ?.map { it.jsonPrimitive.content }
                         .orEmpty(),
+                    attachments = payload["attachments"]?.jsonArray
+                        ?.take(MAX_ATTACHMENTS_PER_MESSAGE)
+                        ?.mapNotNull { element ->
+                            runCatching {
+                                val attachment = element.jsonObject
+                                MessageAttachment(
+                                    id = attachment.getValue("id").jsonPrimitive.content,
+                                    origin = attachment["origin"]?.jsonPrimitive?.contentOrNull,
+                                    key = attachment.getValue("key").jsonPrimitive.content,
+                                    nonce = attachment.getValue("nonce").jsonPrimitive.content,
+                                    name = attachment["name"]?.jsonPrimitive?.contentOrNull
+                                        ?.take(MAX_ATTACHMENT_NAME_LENGTH)
+                                        .orEmpty()
+                                        .ifBlank { "attachment" },
+                                    mime = attachment["mime"]?.jsonPrimitive?.contentOrNull
+                                        ?.take(MAX_MIME_LENGTH)
+                                        .orEmpty()
+                                        .ifBlank { "application/octet-stream" },
+                                    size = attachment["size"]?.jsonPrimitive?.longOrNull
+                                        ?.coerceAtLeast(0L) ?: 0L,
+                                    durationMs = attachment["duration_ms"]?.jsonPrimitive?.longOrNull
+                                        ?.coerceAtLeast(0L),
+                                )
+                            }.getOrNull()
+                        }
+                        .orEmpty(),
                 )
             }
         } finally {
@@ -129,17 +186,60 @@ class IdentityCoordinator(
         }
     }.getOrNull()
 
+    fun openAttachment(ciphertext: ByteArray, attachment: MessageAttachment): ByteArray? =
+        runCatching {
+            crypto.openSecretBox(
+                ciphertext = ciphertext,
+                nonce = attachment.nonce.base64Bytes(CryptoBoundary.NONCE_BYTES),
+                key = attachment.key.base64Bytes(CryptoBoundary.SECRETBOX_KEY_BYTES),
+            )
+        }.getOrNull()
+
+    fun encryptAttachment(attachment: OutgoingAttachment): EncryptedAttachment {
+        require(attachment.bytes.isNotEmpty()) { "An attachment cannot be empty." }
+        val key = ByteArray(CryptoBoundary.SECRETBOX_KEY_BYTES).also(secureRandom::nextBytes)
+        return try {
+            val sealed = crypto.sealSecretBox(attachment.bytes, key)
+            EncryptedAttachment(
+                ciphertext = sealed.ciphertext,
+                key = key,
+                nonce = sealed.nonce,
+                name = attachment.name,
+                mime = attachment.mime,
+                size = attachment.bytes.size.toLong(),
+                durationMs = attachment.durationMs,
+            )
+        } catch (error: Exception) {
+            key.fill(0)
+            throw error
+        }
+    }
+
     fun sealMessage(
         text: String,
         recipients: List<Recipient>,
         secretKey: ByteArray,
+        attachments: List<MessageAttachment> = emptyList(),
     ): List<MessageEnvelopeRequest> {
-        require(text.isNotBlank()) { "A message cannot be empty." }
+        require(text.isNotBlank() || attachments.isNotEmpty()) { "A message cannot be empty." }
         val payload = buildJsonObject {
             put("v", 1)
             put("kind", "message")
             put("text", text)
-            put("attachments", buildJsonArray {})
+            put("attachments", buildJsonArray {
+                attachments.forEach { attachment ->
+                    add(buildJsonObject {
+                        put("id", attachment.id)
+                        attachment.origin?.let { put("origin", it) }
+                        put("key", attachment.key)
+                        put("nonce", attachment.nonce)
+                        put("name", attachment.name)
+                        put("mime", attachment.mime)
+                        put("size", attachment.size)
+                        attachment.durationMs?.let { put("duration_ms", it) }
+                    })
+                }
+            })
             put("to", buildJsonArray { recipients.forEach { add(JsonPrimitive(it.handle)) } })
             put("sent_at", Instant.now().toString())
         }.toString().toByteArray(Charsets.UTF_8)
@@ -174,5 +274,8 @@ class IdentityCoordinator(
         private val SUPPORTED_KINDS = setOf("message", "location", "note")
         const val MIN_PASSPHRASE_LENGTH = 8
         private const val CIPHERTEXT_BYTES = CryptoBoundary.IDENTITY_KEY_BYTES + 16
+        private const val MAX_ATTACHMENTS_PER_MESSAGE = 20
+        private const val MAX_ATTACHMENT_NAME_LENGTH = 240
+        private const val MAX_MIME_LENGTH = 120
     }
 }

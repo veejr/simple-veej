@@ -9,14 +9,17 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.veejr.core.network.Account
 import org.veejr.core.network.AccountResponse
 import org.veejr.core.network.Capabilities
+import org.veejr.core.network.BlobUploadResponse
 import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.LoginResponse
 import org.veejr.core.network.KeySetupRequest
@@ -42,6 +45,7 @@ import org.veejr.core.network.ResolveRecipientsResponse
 import org.veejr.core.network.RefreshResponse
 import org.veejr.core.network.SessionTokens
 import org.veejr.core.network.VeejrApi
+import org.veejr.core.crypto.VeejrCrypto
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VeejrViewModelTest {
@@ -80,7 +84,7 @@ class VeejrViewModelTest {
     }
 
     @Test
-    fun `HTTP emulator bridge follows the build variant policy`() = runTest(dispatcher) {
+    fun `legacy emulator endpoint migrates to debug loopback`() = runTest(dispatcher) {
         val storage = FakeStorage()
         val viewModel = viewModel(storage, FakeApi())
         advanceUntilIdle()
@@ -90,10 +94,23 @@ class VeejrViewModelTest {
 
         if (BuildConfig.DEBUG) {
             assertEquals(AppScreen.LOGIN, viewModel.state.value.screen)
-            assertEquals("http://10.0.2.2:4000", storage.endpoint)
+            assertEquals("http://127.0.0.1:4000", storage.endpoint)
         } else {
             assertEquals(AppScreen.INSTANCE, viewModel.state.value.screen)
             assertNull(storage.endpoint)
+        }
+    }
+
+    @Test
+    fun `saved emulator endpoint migrates on debug startup`() = runTest(dispatcher) {
+        val storage = FakeStorage(endpoint = "http://10.0.2.2:4000")
+        val viewModel = viewModel(storage, FakeApi())
+        advanceUntilIdle()
+
+        if (BuildConfig.DEBUG) {
+            assertEquals(AppScreen.LOGIN, viewModel.state.value.screen)
+            assertEquals("http://127.0.0.1:4000", viewModel.state.value.endpoint)
+            assertEquals("http://127.0.0.1:4000", storage.endpoint)
         }
     }
 
@@ -135,6 +152,39 @@ class VeejrViewModelTest {
         assertEquals(AppScreen.HOME, viewModel.state.value.screen)
         assertEquals(true, viewModel.state.value.account?.keysConfigured)
         assertEquals("PBKDF2-SHA256", api.keySetupRequest?.wrappedKey?.kdf?.name)
+    }
+
+    @Test
+    fun `attachment ciphertext is downloaded and opened locally`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi()
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+
+        val plaintext = "private attachment".toByteArray()
+        val key = ByteArray(32) { it.toByte() }
+        val sealed = VeejrCrypto().sealSecretBox(plaintext, key)
+        api.attachmentCiphertext = sealed.ciphertext
+        val encoder = java.util.Base64.getEncoder()
+        val attachment = MessageAttachment(
+            id = "abcdefghijklmnop",
+            origin = "https://files.example",
+            key = encoder.encodeToString(key),
+            nonce = encoder.encodeToString(sealed.nonce),
+            name = "report.pdf",
+            mime = "application/pdf",
+            size = plaintext.size.toLong(),
+        )
+
+        viewModel.openAttachment(attachment).join()
+        advanceUntilIdle()
+
+        assertEquals("https://files.example" to attachment.id, api.attachmentRequest)
+        assertEquals(emptyMap<String, String>(), viewModel.state.value.attachmentErrors)
+        assertArrayEquals(plaintext, viewModel.state.value.openedAttachments[attachment.id]?.bytes)
+        plaintext.fill(0)
+        key.fill(0)
     }
 
     @Test
@@ -206,6 +256,30 @@ class VeejrViewModelTest {
     }
 
     @Test
+    fun `attachment-only message encrypts and uploads before sending`() = runTest(dispatcher) {
+        val storage = FakeStorage("https://chat.example", TOKENS)
+        val api = FakeApi()
+        val viewModel = viewModel(storage, api)
+        advanceUntilIdle()
+        viewModel.setupIdentity("long passphrase", "long passphrase").join()
+        api.resolveToSelf = true
+        val plaintext = "voice message bytes".toByteArray()
+
+        viewModel.sendMessage(
+            "self",
+            ACCOUNT.id,
+            "",
+            listOf(OutgoingAttachment("voice.m4a", "audio/mp4", plaintext)),
+        ).join()
+
+        assertFalse(api.uploadedBlob.contentEquals("voice message bytes".toByteArray()))
+        assertEquals("voice.m4a", viewModel.state.value.messages.first().attachments.single().name)
+        assertEquals("https://chat.example", viewModel.state.value.messages.first().attachments.single().origin)
+        assertEquals(1, api.sentBatch?.envelopes?.size)
+        assertTrue(plaintext.all { it == 0.toByte() })
+    }
+
+    @Test
     fun `history pagination advances through server cursors`() = runTest(dispatcher) {
         val storage = FakeStorage("https://chat.example", TOKENS)
         val api = FakeApi().apply {
@@ -262,6 +336,9 @@ class VeejrViewModelTest {
         val historyPages = mutableMapOf<String?, EnvelopePage>()
         val historyCursors = mutableListOf<String?>()
         var policyUpdate: Pair<String, String>? = null
+        var attachmentRequest: Pair<String?, String>? = null
+        var attachmentCiphertext: ByteArray = byteArrayOf()
+        var uploadedBlob: ByteArray = byteArrayOf()
         var policies: List<MessageDeliveryPolicy> = emptyList()
         val declinedIds = mutableListOf<String>()
         override suspend fun capabilities() = Capabilities(
@@ -379,6 +456,18 @@ class VeejrViewModelTest {
         }
         override suspend fun messageHistory(accessToken: String, cursor: String?, kind: String?) =
             historyPages[cursor].also { historyCursors += cursor } ?: EnvelopePage(emptyList())
+        override suspend fun attachmentBlob(origin: String?, id: String): ByteArray {
+            attachmentRequest = origin to id
+            return attachmentCiphertext.copyOf()
+        }
+        override suspend fun uploadBlob(
+            accessToken: String,
+            idempotencyKey: String,
+            ciphertext: ByteArray,
+        ): BlobUploadResponse {
+            uploadedBlob = ciphertext.copyOf()
+            return BlobUploadResponse("uploadedblob1234", ciphertext.size.toLong())
+        }
         override suspend fun logout(accessToken: String) = Unit
     }
 

@@ -6,7 +6,8 @@ attachments, locations, and map notes.
 
 > **Status:** early native client with instance selection, authentication,
 > encrypted session persistence, portable identity-key setup/unlock, foreground
-> sync, message consent, encrypted conversations, and history browsing.
+> sync, message consent, encrypted conversations, attachment viewing, and
+> history browsing.
 
 ## Current experience
 
@@ -16,6 +17,12 @@ using mobile-first navigation:
 - **Messages** is a WhatsApp-style conversation list combining contacts and
   groups. It shows the latest decrypted item, handles pending consent requests,
   and opens an encrypted conversation with its own composer.
+- **Attachments** appear inside message bubbles. They are fetched as opaque
+  encrypted blobs only when requested, authenticated and decrypted locally,
+  previewed inline for images, and opened through Android's installed viewer
+  for PDF, audio, and other supported file types. The composer can pick up to
+  ten files or launch the device's audio recorder; every result is encrypted
+  locally before upload.
 - **History** opens from Account as a dedicated chronological encrypted feed.
   It can be filtered by Everything, Messages, Locations, or Notes and loads the
   next 50 envelopes as the reader approaches the end.
@@ -24,9 +31,9 @@ using mobile-first navigation:
 - **Account** shows the active instance and unlocked identity state and provides
   history, sign-out, and instance-reset actions.
 
-Android currently sends text messages and reads protocol-v1 message, location,
-and note payloads. Native attachment, map, contact-management, and group-editing
-flows remain on the parity roadmap.
+Android currently sends text, file attachments, and recorded audio and reads
+protocol-v1 message, location, note, and attachment payloads. Maps,
+contact-management, and group-editing flows remain on the parity roadmap.
 
 ## Architecture
 
@@ -60,21 +67,43 @@ cd /path/to/veejr-server
 mix phx.server
 ```
 
-Run the Android `debug` variant in an emulator, then enter
-`http://10.0.2.2:4000` as the instance URL. `10.0.2.2` is the emulator's bridge
-to the host loopback interface. HTTP is accepted only by debug builds; release
-builds require HTTPS and disable Android cleartext traffic.
+For an emulator or physical Android device running the `debug` variant, connect
+the device with ADB and verify that it appears:
 
-For a physical Android device connected with ADB, reverse the development port
-and use `http://127.0.0.1:4000` in the app:
+```sh
+adb devices -l
+```
+
+Then reverse the development port before launching the app:
 
 ```sh
 adb reverse tcp:4000 tcp:4000
 ```
 
-The reverse mapping lasts only while the device remains connected. Confirm that
-Phoenix is running and check the mapping with `adb reverse --list` if the app
-cannot refresh.
+The debug app defaults to `http://127.0.0.1:4000`. HTTP is accepted only by
+debug builds; release builds require HTTPS and disable Android cleartext
+traffic.
+
+Verify the active mapping with:
+
+```sh
+adb reverse --list
+```
+
+The output should contain `tcp:4000 tcp:4000`. The mapping belongs to the
+connected device and can disappear when the device disconnects, wireless
+debugging reconnects, or ADB restarts. Run the reverse command again whenever
+the Android app reports that `http://127.0.0.1:4000` cannot be reached.
+
+If more than one device is connected, target the intended device explicitly:
+
+```sh
+adb -s DEVICE_SERIAL reverse tcp:4000 tcp:4000
+```
+
+Also confirm that Phoenix is still listening on port 4000 on the development
+machine. `127.0.0.1` without ADB reversal refers only to the Android device
+itself; it does not reach the development machine directly.
 
 ## Security
 
