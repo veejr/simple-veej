@@ -197,7 +197,11 @@ class AuthSessionManagerTest {
             request: MessageBatchRequest,
         ): MessageBatchResponse = error("not used")
 
-        override suspend fun messageHistory(accessToken: String, cursor: String?): EnvelopePage =
+        override suspend fun messageHistory(
+            accessToken: String,
+            cursor: String?,
+            kind: String?,
+        ): EnvelopePage =
             EnvelopePage(emptyList())
 
         override suspend fun logout(accessToken: String) {

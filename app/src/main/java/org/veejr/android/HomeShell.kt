@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -57,7 +59,8 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import kotlinx.coroutines.delay
 
 private enum class HomeTab(val title: String, val icon: ImageVector) {
-    INBOX("Inbox", Icons.AutoMirrored.Outlined.Chat),
+    MESSAGES("Messages", Icons.AutoMirrored.Outlined.Chat),
+    HISTORY("History", Icons.Outlined.History),
     CONTACTS("Contacts", Icons.Outlined.People),
     GROUPS("Groups", Icons.Outlined.Groups),
     ACCOUNT("Account", Icons.Outlined.Settings),
@@ -83,7 +86,7 @@ fun HomeScreen(
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
-    var tab by rememberSaveable { mutableStateOf(HomeTab.INBOX) }
+    var tab by rememberSaveable { mutableStateOf(HomeTab.MESSAGES) }
     var conversationType by rememberSaveable { mutableStateOf<String?>(null) }
     var conversationId by rememberSaveable { mutableStateOf<String?>(null) }
     val conversation = when (conversationType) {
@@ -98,7 +101,7 @@ fun HomeScreen(
     val openConversation: (String, String) -> Unit = { type, id ->
         conversationType = type
         conversationId = id
-        tab = HomeTab.INBOX
+        tab = HomeTab.MESSAGES
     }
 
     LaunchedEffect(Unit) {
@@ -137,7 +140,12 @@ fun HomeScreen(
         },
     ) { padding ->
         when (tab) {
-            HomeTab.INBOX -> InboxScreen(state, conversation, padding, onAccept, onDecline, onSend)
+            HomeTab.MESSAGES -> if (conversation == null) {
+                MessagesScreen(state, padding, onAccept, onDecline, openConversation)
+            } else {
+                ConversationScreen(state, conversation, padding, onSend)
+            }
+            HomeTab.HISTORY -> HistoryScreen(state, padding)
             HomeTab.CONTACTS -> ContactsScreen(
                 state,
                 padding,
@@ -172,11 +180,11 @@ private fun MobileTopBar(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (tab == HomeTab.INBOX && conversation != null) {
+                if (tab == HomeTab.MESSAGES && conversation != null) {
                     IconButton(onClick = onBackConversation) {
                         Icon(
                             Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "All messages",
+                            contentDescription = "All conversations",
                             tint = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
@@ -192,17 +200,17 @@ private fun MobileTopBar(
                 }
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(
-                        conversation?.title?.takeIf { tab == HomeTab.INBOX }
-                            ?: if (tab == HomeTab.INBOX) "veejr" else tab.title,
+                        conversation?.title?.takeIf { tab == HomeTab.MESSAGES }
+                            ?: if (tab == HomeTab.MESSAGES) "veejr" else tab.title,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Text(
-                        if (tab == HomeTab.INBOX && conversation != null) {
+                        if (tab == HomeTab.MESSAGES && conversation != null) {
                             "Encrypted ${conversation.subjectType} conversation"
-                        } else if (tab == HomeTab.INBOX) {
-                            "Inbox · ${state.account?.handle.orEmpty()}"
+                        } else if (tab == HomeTab.MESSAGES) {
+                            "Private conversations · ${state.account?.handle.orEmpty()}"
                         } else {
                             state.account?.handle.orEmpty()
                         },
@@ -211,11 +219,11 @@ private fun MobileTopBar(
                     )
                 }
             }
-            if (tab == HomeTab.INBOX) {
+            if (tab == HomeTab.MESSAGES || tab == HomeTab.HISTORY) {
                 IconButton(onClick = onRefresh, enabled = !state.loading) {
                     Icon(
                         Icons.Outlined.Refresh,
-                        contentDescription = "Sync inbox",
+                        contentDescription = "Sync history",
                         tint = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
@@ -225,55 +233,23 @@ private fun MobileTopBar(
 }
 
 @Composable
-private fun InboxScreen(
+private fun ConversationScreen(
     state: AppUiState,
-    conversation: ConversationTarget?,
+    conversation: ConversationTarget,
     padding: PaddingValues,
-    onAccept: (String) -> Unit,
-    onDecline: (String) -> Unit,
     onSend: (String, String, String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
-    var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedContact = state.contacts.firstOrNull { it.id == selectedContactId }
-        ?: state.contacts.firstOrNull()
-    val visibleMessages = if (conversation == null) {
-        state.messages
-    } else {
-        state.messages.filter { message ->
-            if (message.sentByMe) {
-                conversation.memberHandles.isNotEmpty() &&
-                    conversation.memberHandles.all(message.recipientHandles::contains)
-            } else {
-                message.senderHandle in conversation.memberHandles
-            }
-        }
-    }
+    val visibleMessages = messagesForConversation(state.messages, conversation)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (state.notifications.isNotEmpty()) {
-            item {
-                SectionHeading(
-                    "Requests",
-                    "${state.notifications.size} encrypted message${if (state.notifications.size == 1) "" else "s"} waiting",
-                )
-            }
-            items(state.notifications, key = { "request-${it.id}" }) { notification ->
-                ConsentCard(notification.sender.handle, notification.kind, {
-                    onAccept(notification.id)
-                }, {
-                    onDecline(notification.id)
-                })
-            }
-        }
-
         item {
             SectionHeading(
-                conversation?.title ?: "Messages",
+                conversation.title,
                 "End-to-end encrypted · plaintext stays on this device",
             )
         }
@@ -282,11 +258,7 @@ private fun InboxScreen(
             item {
                 EmptyState(
                     "No messages yet",
-                    if (conversation == null) {
-                        "Choose a contact below and start a private conversation."
-                    } else {
-                        "Send the first encrypted message to ${conversation.title}."
-                    },
+                    "Send the first encrypted message to ${conversation.title}.",
                 )
             }
         } else {
@@ -302,36 +274,12 @@ private fun InboxScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text("New message", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    if (conversation == null && state.contacts.isEmpty()) {
-                        Text(
-                            "Add an accepted friend in the server app to begin.",
-                            modifier = Modifier.padding(top = 8.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        if (conversation == null) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                state.contacts.take(3).forEach { contact ->
-                                    FilterChip(
-                                        selected = selectedContact?.id == contact.id,
-                                        onClick = { selectedContactId = contact.id },
-                                        label = {
-                                            Text(contact.handle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        },
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                "To ${conversation.title}",
-                                modifier = Modifier.padding(top = 8.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                    Text(
+                        "To ${conversation.title}",
+                        modifier = Modifier.padding(top = 8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
                         OutlinedTextField(
                             value = draft,
                             onValueChange = { draft = it },
@@ -343,26 +291,186 @@ private fun InboxScreen(
                         )
                         Button(
                             onClick = {
-                                if (conversation != null) {
-                                    onSend(conversation.subjectType, conversation.id, draft)
-                                } else {
-                                    selectedContact?.let { onSend("contact", it.id, draft) }
-                                }
+                                onSend(conversation.subjectType, conversation.id, draft)
                                 draft = ""
                             },
                             modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
-                            enabled = (conversation != null || selectedContact != null) &&
-                                draft.isNotBlank() && !state.loading,
+                            enabled = draft.isNotBlank() && !state.loading,
                         ) {
-                            Text("Send to ${conversation?.title ?: selectedContact?.handle.orEmpty()}")
+                            Text("Send to ${conversation.title}")
                         }
-                    }
                 }
             }
         }
 
         state.error?.let { error -> item { ErrorBanner(error) } }
     }
+}
+
+private enum class HistoryFilter(val title: String, val kind: String?) {
+    EVERYTHING("Everything", null),
+    MESSAGES("Messages", "message"),
+    LOCATIONS("Locations", "location"),
+    NOTES("Notes", "note"),
+}
+
+@Composable
+private fun MessagesScreen(
+    state: AppUiState,
+    padding: PaddingValues,
+    onAccept: (String) -> Unit,
+    onDecline: (String) -> Unit,
+    onOpenConversation: (String, String) -> Unit,
+) {
+    val conversations = buildList {
+        state.contacts.forEach { contact ->
+            add(ConversationTarget("contact", contact.id, contact.handle, setOf(contact.handle)))
+        }
+        state.groups.forEach { group ->
+            add(
+                ConversationTarget(
+                    "group",
+                    group.id,
+                    group.name,
+                    group.members.map { it.handle }.toSet(),
+                ),
+            )
+        }
+    }.sortedByDescending { target ->
+        messagesForConversation(state.messages, target).firstOrNull()?.createdAt.orEmpty()
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(vertical = 10.dp),
+    ) {
+        if (state.notifications.isNotEmpty()) {
+            item {
+                SectionHeading(
+                    "Message requests",
+                    "${state.notifications.size} waiting for your consent",
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            items(state.notifications, key = { "request-${it.id}" }) { notification ->
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
+                    ConsentCard(notification.sender.handle, notification.kind, {
+                        onAccept(notification.id)
+                    }, {
+                        onDecline(notification.id)
+                    })
+                }
+            }
+        }
+
+        item {
+            SectionHeading(
+                "Conversations",
+                "Contacts and groups in one place",
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+        if (conversations.isEmpty()) {
+            item {
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    EmptyState("No conversations yet", "Add a trusted contact to start messaging.")
+                }
+            }
+        }
+        items(conversations, key = { "${it.subjectType}-${it.id}" }) { target ->
+            val latest = messagesForConversation(state.messages, target).firstOrNull()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenConversation(target.subjectType, target.id) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(target.title)
+                Column(Modifier.weight(1f).padding(start = 13.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            target.title,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        latest?.let {
+                            Text(
+                                it.createdAt.replace('T', ' ').take(16),
+                                modifier = Modifier.padding(start = 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Text(
+                        latest?.let(::messagePreview)
+                            ?: if (target.subjectType == "group") "Group · tap to start" else "Tap to start a message",
+                        modifier = Modifier.padding(top = 3.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        state.error?.let { error -> item { Box(Modifier.padding(16.dp)) { ErrorBanner(error) } } }
+    }
+}
+
+@Composable
+private fun HistoryScreen(state: AppUiState, padding: PaddingValues) {
+    var filter by rememberSaveable { mutableStateOf(HistoryFilter.EVERYTHING) }
+    val items = state.messages.filter { filter.kind == null || it.kind == filter.kind }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            SectionHeading("Your history", "Messages, shared places, and private map notes")
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(HistoryFilter.entries, key = { it.name }) { option ->
+                    FilterChip(
+                        selected = filter == option,
+                        onClick = { filter = option },
+                        label = { Text(option.title) },
+                    )
+                }
+            }
+        }
+        if (items.isEmpty()) {
+            item { EmptyState("Nothing here yet", "Encrypted ${filter.title.lowercase()} will appear here.") }
+        } else {
+            items(items, key = { it.publicId }) { message -> MessageBubble(message) }
+        }
+        state.error?.let { error -> item { ErrorBanner(error) } }
+    }
+}
+
+private fun messagesForConversation(
+    messages: List<InboxMessage>,
+    conversation: ConversationTarget,
+): List<InboxMessage> = messages.filter { message ->
+    if (message.sentByMe) {
+        conversation.memberHandles.isNotEmpty() &&
+            conversation.memberHandles.all(message.recipientHandles::contains)
+    } else {
+        message.senderHandle in conversation.memberHandles
+    }
+}
+
+private fun messagePreview(message: InboxMessage): String = when (message.kind) {
+    "location" -> "📍 ${message.text.ifBlank { "Shared a location" }}"
+    "note" -> "📝 ${message.title ?: message.text.ifBlank { "Map note" }}"
+    else -> if (message.sentByMe) "You: ${message.text}" else message.text
 }
 
 @Composable
@@ -637,8 +745,8 @@ private fun AppUiState.policyAcceptance(subjectType: String, subjectId: String):
     }?.acceptance
 
 @Composable
-private fun SectionHeading(title: String, subtitle: String) {
-    Column {
+private fun SectionHeading(title: String, subtitle: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(
             subtitle,
@@ -681,7 +789,7 @@ private fun ConsentCard(
 
 @Composable
 private fun MessageBubble(message: InboxMessage) {
-    val mine = message.senderHandle == "You"
+    val mine = message.sentByMe
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
@@ -704,7 +812,30 @@ private fun MessageBubble(message: InboxMessage) {
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
                 )
-                Text(message.text, modifier = Modifier.padding(top = 3.dp))
+                if (message.kind != "message") {
+                    Text(
+                        if (message.kind == "location") "📍 Location" else "📝 Note",
+                        modifier = Modifier.padding(top = 3.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                message.title?.takeIf(String::isNotBlank)?.let { title ->
+                    Text(title, modifier = Modifier.padding(top = 3.dp), fontWeight = FontWeight.Bold)
+                }
+                message.text.takeIf(String::isNotBlank)?.let { text ->
+                    Text(text, modifier = Modifier.padding(top = 3.dp))
+                }
+                if (message.kind in setOf("location", "note") &&
+                    message.latitude != null && message.longitude != null
+                ) {
+                    Text(
+                        "${"%.5f".format(message.latitude)}, ${"%.5f".format(message.longitude)}",
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     message.createdAt.replace('T', ' ').take(16),
                     modifier = Modifier.align(Alignment.End).padding(top = 5.dp),

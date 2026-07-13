@@ -94,8 +94,8 @@ class AuthSessionManager(
         api.sendMessageBatch(accessToken, idempotencyKey, request)
     }
 
-    suspend fun messageHistory(cursor: String? = null): EnvelopePage =
-        withAccessToken { accessToken -> api.messageHistory(accessToken, cursor) }
+    suspend fun messageHistory(cursor: String? = null, kind: String? = null): EnvelopePage =
+        withAccessToken { accessToken -> api.messageHistory(accessToken, cursor, kind) }
 
     suspend fun hasSession(): Boolean = tokenStore.load() != null
 

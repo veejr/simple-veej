@@ -146,9 +146,21 @@ class VeejrApiClientTest {
         assertEquals("next-page", page.nextCursor)
         server.takeRequest().also { request ->
             assertEquals("GET", request.method)
-            assertEquals("/api/v1/envelopes?kind=message", request.path)
+            assertEquals("/api/v1/envelopes", request.path)
             assertEquals("Bearer access-secret", request.getHeader("Authorization"))
         }
+    }
+
+    @Test
+    fun `filters history by kind and preserves the cursor`() = runBlocking<Unit> {
+        server.enqueue(jsonResponse(HISTORY_JSON))
+
+        api.messageHistory("access-secret", cursor = "next page", kind = "location")
+
+        assertEquals(
+            "/api/v1/envelopes?kind=location&cursor=next+page",
+            server.takeRequest().path,
+        )
     }
 
     @Test

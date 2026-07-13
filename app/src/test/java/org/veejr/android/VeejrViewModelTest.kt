@@ -320,7 +320,7 @@ class VeejrViewModelTest {
             idempotencyKey: String,
             request: MessageBatchRequest,
         ): MessageBatchResponse = error("not used")
-        override suspend fun messageHistory(accessToken: String, cursor: String?) =
+        override suspend fun messageHistory(accessToken: String, cursor: String?, kind: String?) =
             EnvelopePage(emptyList())
         override suspend fun logout(accessToken: String) = Unit
     }

@@ -27,8 +27,12 @@ data class PreparedIdentity(
 )
 
 data class OpenedMessage(
+    val kind: String,
     val text: String,
     val recipientHandles: List<String>,
+    val title: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 )
 
 class IdentityCoordinator(
@@ -105,20 +109,20 @@ class IdentityCoordinator(
         ) ?: return@runCatching null
         try {
             val payload = Json.parseToJsonElement(plaintext.toString(Charsets.UTF_8)).jsonObject
-            if (
-                payload["v"]?.jsonPrimitive?.content != "1" ||
-                payload["kind"]?.jsonPrimitive?.content != "message"
-            ) {
+            val kind = payload["kind"]?.jsonPrimitive?.content ?: return@runCatching null
+            if (payload["v"]?.jsonPrimitive?.content != "1" || kind !in SUPPORTED_KINDS) {
                 null
             } else {
-                payload["text"]?.jsonPrimitive?.content?.takeIf(String::isNotEmpty)?.let { text ->
-                    OpenedMessage(
-                        text = text,
-                        recipientHandles = payload["to"]?.jsonArray
-                            ?.map { it.jsonPrimitive.content }
-                            .orEmpty(),
-                    )
-                }
+                OpenedMessage(
+                    kind = kind,
+                    text = payload["text"]?.jsonPrimitive?.content.orEmpty(),
+                    title = payload["title"]?.jsonPrimitive?.content,
+                    latitude = payload["lat"]?.jsonPrimitive?.content?.toDoubleOrNull(),
+                    longitude = payload["lng"]?.jsonPrimitive?.content?.toDoubleOrNull(),
+                    recipientHandles = payload["to"]?.jsonArray
+                        ?.map { it.jsonPrimitive.content }
+                        .orEmpty(),
+                )
             }
         } finally {
             plaintext.fill(0)
@@ -167,6 +171,7 @@ class IdentityCoordinator(
         Base64.getDecoder().decode(this).also { require(it.size >= minimumBytes) }
 
     companion object {
+        private val SUPPORTED_KINDS = setOf("message", "location", "note")
         const val MIN_PASSPHRASE_LENGTH = 8
         private const val CIPHERTEXT_BYTES = CryptoBoundary.IDENTITY_KEY_BYTES + 16
     }

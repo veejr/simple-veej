@@ -1,5 +1,6 @@
 package org.veejr.android
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -48,6 +49,10 @@ data class InboxMessage(
     val createdAt: String,
     val recipientHandles: List<String> = emptyList(),
     val sentByMe: Boolean = false,
+    val kind: String = "message",
+    val title: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 )
 
 class VeejrViewModel(
@@ -225,6 +230,10 @@ class VeejrViewModel(
                     createdAt = envelope.createdAt,
                     recipientHandles = opened.recipientHandles,
                     sentByMe = envelope.sentByMe,
+                    kind = opened.kind,
+                    title = opened.title,
+                    latitude = opened.latitude,
+                    longitude = opened.longitude,
                 )
                 mutableState.update {
                     it.copy(
@@ -411,6 +420,10 @@ class VeejrViewModel(
                             createdAt = envelope.createdAt,
                             recipientHandles = opened.recipientHandles,
                             sentByMe = envelope.sentByMe,
+                            kind = opened.kind,
+                            title = opened.title,
+                            latitude = opened.latitude,
+                            longitude = opened.longitude,
                         )
                     }
                 }
@@ -426,6 +439,9 @@ class VeejrViewModel(
                 )
             }
         } catch (error: Exception) {
+            if (BuildConfig.DEBUG) {
+                Log.e("VeejrViewModel", "Inbox refresh failed: ${error.javaClass.simpleName}: ${error.message}")
+            }
             mutableState.update { it.copy(loading = false, error = messageFor(error)) }
         }
     }

@@ -1,6 +1,8 @@
 package org.veejr.core.network
 
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -49,7 +51,11 @@ interface VeejrApi {
         idempotencyKey: String,
         request: MessageBatchRequest,
     ): MessageBatchResponse
-    suspend fun messageHistory(accessToken: String, cursor: String? = null): EnvelopePage
+    suspend fun messageHistory(
+        accessToken: String,
+        cursor: String? = null,
+        kind: String? = null,
+    ): EnvelopePage
     suspend fun logout(accessToken: String)
 }
 
@@ -160,10 +166,18 @@ class VeejrApiClient(
         return execute(httpRequest)
     }
 
-    override suspend fun messageHistory(accessToken: String, cursor: String?): EnvelopePage {
+    override suspend fun messageHistory(
+        accessToken: String,
+        cursor: String?,
+        kind: String?,
+    ): EnvelopePage {
         val path = buildString {
-            append("envelopes?kind=message")
-            if (cursor != null) append("&cursor=").append(java.net.URLEncoder.encode(cursor, "UTF-8"))
+            append("envelopes")
+            val params = buildList {
+                if (kind != null) add("kind=${java.net.URLEncoder.encode(kind, "UTF-8")}")
+                if (cursor != null) add("cursor=${java.net.URLEncoder.encode(cursor, "UTF-8")}")
+            }
+            if (params.isNotEmpty()) append('?').append(params.joinToString("&"))
         }
         return get(path, accessToken)
     }
@@ -237,18 +251,24 @@ class VeejrApiClient(
     }
 
     private suspend inline fun <reified T> execute(request: Request): T {
-        client.newCall(request).executeAsync().use { response ->
-            val body = response.body.string()
-            if (!response.isSuccessful) throw decodeError(response.code, body)
-            return json.decodeFromString(body)
+        return withContext(Dispatchers.IO) {
+            client.newCall(request).executeAsync().use { response ->
+                val body = response.body.string()
+                if (!response.isSuccessful) throw decodeError(response.code, body)
+                json.decodeFromString(body)
+            }
         }
     }
 
     private suspend fun executeNoContent(request: Request) {
-        client.newCall(request).executeAsync().use { response ->
-            val body = response.body.string()
-            if (!response.isSuccessful) throw decodeError(response.code, body)
-            if (response.code != 204) throw IOException("Expected HTTP 204, received ${response.code}")
+        withContext(Dispatchers.IO) {
+            client.newCall(request).executeAsync().use { response ->
+                val body = response.body.string()
+                if (!response.isSuccessful) throw decodeError(response.code, body)
+                if (response.code != 204) {
+                    throw IOException("Expected HTTP 204, received ${response.code}")
+                }
+            }
         }
     }
 

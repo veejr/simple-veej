@@ -1,6 +1,7 @@
 package org.veejr.android
 
 import java.security.MessageDigest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,6 +73,42 @@ class IdentityCoordinatorTest {
         )
 
         assertTrue(coordinator.openMessage(envelope, prepared.secretKey) == "hello from web")
+        prepared.secretKey.fill(0)
+    }
+
+    @Test
+    fun `opens protocol v1 location and note fields for history`() {
+        val coordinator = IdentityCoordinator()
+        val prepared = coordinator.prepare("correct horse".toCharArray())
+        val publicKey = java.util.Base64.getDecoder().decode(prepared.request.publicKey)
+        val sealed = VeejrCrypto().sealBox(
+            """{"v":1,"kind":"note","title":"Cafe","text":"Meet here","lat":52.52,"lng":13.405,"to":["@bob"]}"""
+                .toByteArray(),
+            publicKey,
+            prepared.secretKey,
+        )
+        val envelope = Envelope(
+            publicId = "note",
+            batchId = "batch",
+            kind = "note",
+            ciphertext = java.util.Base64.getEncoder().encodeToString(sealed.ciphertext),
+            nonce = java.util.Base64.getEncoder().encodeToString(sealed.nonce),
+            peerKey = prepared.request.publicKey,
+            sender = SenderSummary("42", "@alice"),
+            sentByMe = true,
+            resealed = false,
+            createdAt = "2026-07-12T20:00:00Z",
+            displayCount = 0,
+        )
+
+        val opened = coordinator.openMessagePayload(envelope, prepared.secretKey)
+
+        assertEquals("note", opened?.kind)
+        assertEquals("Cafe", opened?.title)
+        assertEquals("Meet here", opened?.text)
+        assertEquals(52.52, checkNotNull(opened).latitude!!, 0.0)
+        assertEquals(13.405, opened.longitude!!, 0.0)
+        assertEquals(listOf("@bob"), opened.recipientHandles)
         prepared.secretKey.fill(0)
     }
 
