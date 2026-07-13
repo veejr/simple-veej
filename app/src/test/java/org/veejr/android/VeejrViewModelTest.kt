@@ -160,13 +160,13 @@ class VeejrViewModelTest {
         advanceUntilIdle()
         viewModel.setupIdentity("long passphrase", "long passphrase").join()
 
-        viewModel.setDeliveryPolicy("contact", contact.id, "automatic")
+        viewModel.setDeliveryPolicy("contact", contact.id, "automatic").join()
         advanceUntilIdle()
 
         assertEquals("automatic", viewModel.state.value.deliveryPolicies.single().acceptance)
         assertEquals("contact:7" to "automatic", api.policyUpdate)
 
-        viewModel.setDeliveryPolicy("contact", contact.id, null)
+        viewModel.setDeliveryPolicy("contact", contact.id, null).join()
         advanceUntilIdle()
 
         assertEquals(emptyList<MessageDeliveryPolicy>(), viewModel.state.value.deliveryPolicies)

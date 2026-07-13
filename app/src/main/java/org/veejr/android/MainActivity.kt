@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,15 +23,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +43,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,7 +66,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = if (state.screen == AppScreen.HOME) 0.dp else 24.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 AnimatedContent(targetState = state.screen, label = "session-screen") { screen ->
@@ -275,258 +270,6 @@ private fun LoginScreen(
         }
         TextButton(onClick = onChangeInstance, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Use a different instance")
-        }
-    }
-}
-
-@Composable
-private fun HomeScreen(
-    state: AppUiState,
-    onAccept: (String) -> Unit,
-    onDecline: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onSync: () -> Unit,
-    onSend: (String, String) -> Unit,
-    onSetDeliveryPolicy: (String, String, String?) -> Unit,
-    onLogout: () -> Unit,
-    onChangeInstance: () -> Unit,
-) {
-    val account = state.account ?: return
-    var draft by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(15_000)
-            onSync()
-        }
-    }
-    AppCard {
-        BrandHeader("You’re connected", state.endpoint.removePrefix("https://"))
-        Spacer(Modifier.height(28.dp))
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(22.dp)) {
-                Text(
-                    text = account.displayName ?: account.username,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = account.handle,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    text = if (account.keysConfigured) "Encryption keys ready" else "Encryption setup is next",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(top = 20.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column {
-                Text("Inbox", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    "${state.notifications.size} waiting for consent",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            TextButton(onClick = onRefresh, enabled = !state.loading) { Text("Refresh") }
-        }
-        if (state.contacts.isNotEmpty()) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-                label = { Text("Encrypted message") },
-                placeholder = { Text("Write a message…") },
-                minLines = 2,
-                maxLines = 5,
-                enabled = !state.loading,
-            )
-            Text(
-                "Send to",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            state.contacts.forEach { contact ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        DeliveryPolicySelector(
-                            label = "Contact default · ${contact.handle}",
-                            selection = state.policyAcceptance("contact", contact.id),
-                            enabled = !state.loading,
-                            onSelect = { onSetDeliveryPolicy("contact", contact.id, it) },
-                        )
-                        DeliveryPolicySelector(
-                            label = "This conversation",
-                            selection = state.policyAcceptance("conversation", contact.id),
-                            enabled = !state.loading,
-                            onSelect = { onSetDeliveryPolicy("conversation", contact.id, it) },
-                        )
-                        Text(
-                            if (contact.autoAccept) {
-                                "Effective result: Auto · decrypts only after local unlock"
-                            } else {
-                                "Effective result: Ask before releasing encrypted content"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Button(
-                    onClick = {
-                        onSend(contact.id, draft)
-                        draft = ""
-                    },
-                    enabled = draft.isNotBlank() && !state.loading,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Send to ${contact.handle}")
-                }
-            }
-            if (state.groups.isNotEmpty()) {
-                Text(
-                    "Group defaults",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 18.dp),
-                )
-                state.groups.forEach { group ->
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                    ) {
-                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                            DeliveryPolicySelector(
-                                label = group.name,
-                                selection = state.policyAcceptance("group", group.id),
-                                enabled = !state.loading,
-                                onSelect = { onSetDeliveryPolicy("group", group.id, it) },
-                            )
-                            Text(
-                                group.members.joinToString { it.handle },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            Text(
-                "Add an accepted friend on the web app to start a conversation.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-        }
-        if (state.notifications.isEmpty() && state.messages.isEmpty()) {
-            Text(
-                "No messages yet. Pending content appears here without being downloaded.",
-                modifier = Modifier.padding(top = 18.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        state.notifications.forEach { notification ->
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        "${notification.sender.handle} sent an encrypted ${notification.kind}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        "Nothing is downloaded until you accept.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { onDecline(notification.id) }) { Text("Decline") }
-                        Button(onClick = { onAccept(notification.id) }) { Text("Accept") }
-                    }
-                }
-            }
-        }
-        state.messages.forEach { message ->
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        message.senderHandle,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        message.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-            }
-        }
-        ErrorText(state.error)
-        Spacer(Modifier.height(24.dp))
-        OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-            Text("Sign out")
-        }
-        TextButton(onClick = onChangeInstance, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Text("Forget this instance")
-        }
-    }
-}
-
-private fun AppUiState.policyAcceptance(subjectType: String, subjectId: String): String? =
-    deliveryPolicies.firstOrNull {
-        it.subjectType == subjectType && it.subjectId == subjectId
-    }?.acceptance
-
-@Composable
-private fun DeliveryPolicySelector(
-    label: String,
-    selection: String?,
-    enabled: Boolean,
-    onSelect: (String?) -> Unit,
-) {
-    Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(null to "Inherit", "ask" to "Ask", "automatic" to "Auto").forEach { (value, title) ->
-            FilterChip(
-                selected = selection == value,
-                onClick = { onSelect(value) },
-                label = { Text(title) },
-                enabled = enabled,
-            )
         }
     }
 }
