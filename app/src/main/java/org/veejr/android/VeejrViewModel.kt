@@ -37,6 +37,7 @@ data class AppUiState(
     val account: Account? = null,
     val loading: Boolean = true,
     val error: String? = null,
+    val loginMessage: String? = null,
     val notifications: List<PendingNotification> = emptyList(),
     val messages: List<InboxMessage> = emptyList(),
     val contacts: List<Recipient> = emptyList(),
@@ -114,21 +115,43 @@ class VeejrViewModel(
         }
     }
 
-    fun login(email: String, password: String) = viewModelScope.launch {
+    fun login(identifier: String, password: String) = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
-        mutableState.update { it.copy(loading = true, error = null) }
+        mutableState.update { it.copy(loading = true, error = null, loginMessage = null) }
         val passwordChars = password.toCharArray()
         try {
-            val account = manager.login(
-                email = email.trim(),
-                password = passwordChars,
-                device = deviceInfo(),
-            )
+            val account = manager.login(identifier.trim(), passwordChars, deviceInfo())
             showAccount(account)
         } catch (error: Exception) {
             mutableState.update { it.copy(loading = false, error = messageFor(error, loginAttempt = true)) }
         } finally {
             passwordChars.fill('\u0000')
+        }
+    }
+
+    fun requestOneTimeLogin(identifier: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null, loginMessage = null) }
+        try {
+            manager.requestOneTimeLogin(identifier.trim())
+            mutableState.update {
+                it.copy(
+                    loading = false,
+                    loginMessage = "If that username or email exists, we sent a one-time sign-in link.",
+                )
+            }
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error, loginAttempt = true)) }
+        }
+    }
+
+    fun exchangeOneTimeLogin(token: String) = viewModelScope.launch {
+        val manager = sessionManager ?: return@launch
+        mutableState.update { it.copy(loading = true, error = null, loginMessage = null) }
+        try {
+            showAccount(manager.exchangeOneTimeLogin(token.trim(), deviceInfo()))
+        } catch (error: Exception) {
+            mutableState.update { it.copy(loading = false, error = messageFor(error, loginAttempt = true)) }
         }
     }
 
@@ -511,7 +534,7 @@ class VeejrViewModel(
     private fun messageFor(error: Throwable, loginAttempt: Boolean = false): String = when (error) {
         is VeejrApiException -> when (error.statusCode) {
             401 -> if (loginAttempt) {
-                "The email or password was not accepted."
+                "The username, email, or password was not accepted."
             } else {
                 "Your session expired. Please sign in again."
             }

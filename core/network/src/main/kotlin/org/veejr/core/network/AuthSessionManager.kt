@@ -23,6 +23,14 @@ class AuthSessionManager(
         return response.account
     }
 
+    suspend fun requestOneTimeLogin(identifier: String) = api.requestOneTimeLogin(identifier)
+
+    suspend fun exchangeOneTimeLogin(token: String, device: DeviceInfo): Account {
+        val response = api.exchangeOneTimeLogin(token, device)
+        tokenStore.save(response.tokens)
+        return response.account
+    }
+
     suspend fun currentAccount(): Account =
         withAccessToken { accessToken -> api.me(accessToken).account }
 

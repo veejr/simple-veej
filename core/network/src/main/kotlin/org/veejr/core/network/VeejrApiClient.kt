@@ -17,6 +17,12 @@ import okhttp3.coroutines.executeAsync
 interface VeejrApi {
     suspend fun capabilities(): Capabilities
     suspend fun login(email: String, password: CharArray, device: DeviceInfo): LoginResponse
+    suspend fun requestOneTimeLogin(identifier: String) {
+        throw UnsupportedOperationException("One-time login is not available")
+    }
+    suspend fun exchangeOneTimeLogin(token: String, device: DeviceInfo): LoginResponse {
+        throw UnsupportedOperationException("One-time login is not available")
+    }
     suspend fun refresh(refreshToken: String): RefreshResponse
     suspend fun me(accessToken: String): AccountResponse
     suspend fun setupKeys(accessToken: String, request: KeySetupRequest): AccountResponse
@@ -94,6 +100,16 @@ class VeejrApiClient(
             request.clearPassword()
         }
     }
+
+    override suspend fun requestOneTimeLogin(identifier: String) {
+        post<OneTimeLoginRequest, OneTimeLoginAccepted>(
+            "auth/magic-link",
+            OneTimeLoginRequest(identifier),
+        )
+    }
+
+    override suspend fun exchangeOneTimeLogin(token: String, device: DeviceInfo): LoginResponse =
+        post("auth/magic-link/exchange", OneTimeLoginExchangeRequest(token, device))
 
     override suspend fun refresh(refreshToken: String): RefreshResponse =
         post("auth/refresh", RefreshRequest(refreshToken))
@@ -384,7 +400,7 @@ class VeejrApiClient(
 
     @Serializable
     private class LoginRequest(
-        val email: String,
+        val identifier: String,
         private var password: String,
         val device: DeviceInfo,
     ) {
@@ -392,7 +408,18 @@ class VeejrApiClient(
             password = ""
         }
 
-        override fun toString(): String = "LoginRequest(email=$email, password=<redacted>, device=$device)"
+        override fun toString(): String = "LoginRequest(identifier=$identifier, password=<redacted>, device=$device)"
+    }
+
+    @Serializable
+    private data class OneTimeLoginRequest(val identifier: String)
+
+    @Serializable
+    private data class OneTimeLoginAccepted(val ignored: String? = null)
+
+    @Serializable
+    private data class OneTimeLoginExchangeRequest(val token: String, val device: DeviceInfo) {
+        override fun toString(): String = "OneTimeLoginExchangeRequest(token=<redacted>, device=$device)"
     }
 
     @Serializable

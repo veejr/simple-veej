@@ -85,6 +85,8 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                         AppScreen.LOGIN -> LoginScreen(
                             state = state,
                             onLogin = viewModel::login,
+                            onRequestOneTimeLogin = viewModel::requestOneTimeLogin,
+                            onExchangeOneTimeLogin = viewModel::exchangeOneTimeLogin,
                             onChangeInstance = viewModel::changeInstance,
                         )
                         AppScreen.KEY_SETUP -> KeySetupScreen(state, viewModel::setupIdentity)
@@ -261,19 +263,22 @@ private fun InstanceScreen(state: AppUiState, onConnect: (String) -> Unit) {
 private fun LoginScreen(
     state: AppUiState,
     onLogin: (String, String) -> Unit,
+    onRequestOneTimeLogin: (String) -> Unit,
+    onExchangeOneTimeLogin: (String) -> Unit,
     onChangeInstance: () -> Unit,
 ) {
-    var email by remember { mutableStateOf("") }
+    var identifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var oneTimeToken by remember { mutableStateOf("") }
     AppCard {
         BrandHeader("Welcome back", state.endpoint.removePrefix("https://"))
         Spacer(Modifier.height(28.dp))
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
+            value = identifier,
+            onValueChange = { identifier = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Email") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            label = { Text("Username or email") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             singleLine = true,
             enabled = !state.loading,
         )
@@ -292,13 +297,45 @@ private fun LoginScreen(
         Spacer(Modifier.height(20.dp))
         Button(
             onClick = {
-                onLogin(email, password)
+                onLogin(identifier, password)
                 password = ""
             },
-            enabled = email.isNotBlank() && password.isNotBlank() && !state.loading,
+            enabled = identifier.isNotBlank() && password.isNotBlank() && !state.loading,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
             Text("Sign in")
+        }
+        TextButton(
+            onClick = { onRequestOneTimeLogin(identifier) },
+            enabled = identifier.isNotBlank() && !state.loading,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            Text("Email me a one-time link")
+        }
+        state.loginMessage?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedTextField(
+            value = oneTimeToken,
+            onValueChange = { oneTimeToken = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("One-time code") },
+            singleLine = true,
+            enabled = !state.loading,
+        )
+        Button(
+            onClick = {
+                onExchangeOneTimeLogin(oneTimeToken)
+                oneTimeToken = ""
+            },
+            enabled = oneTimeToken.isNotBlank() && !state.loading,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            Text("Sign in with one-time code")
         }
         TextButton(onClick = onChangeInstance, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Use a different instance")
