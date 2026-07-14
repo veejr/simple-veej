@@ -23,6 +23,12 @@ interface VeejrApi {
     suspend fun exchangeOneTimeLogin(token: String, device: DeviceInfo): LoginResponse {
         throw UnsupportedOperationException("One-time login is not available")
     }
+    suspend fun registerPushToken(accessToken: String, token: String) {
+        throw UnsupportedOperationException("Android push is not available")
+    }
+    suspend fun deletePushToken(accessToken: String) {
+        throw UnsupportedOperationException("Android push is not available")
+    }
     suspend fun refresh(refreshToken: String): RefreshResponse
     suspend fun me(accessToken: String): AccountResponse
     suspend fun setupKeys(accessToken: String, request: KeySetupRequest): AccountResponse
@@ -110,6 +116,18 @@ class VeejrApiClient(
 
     override suspend fun exchangeOneTimeLogin(token: String, device: DeviceInfo): LoginResponse =
         post("auth/magic-link/exchange", OneTimeLoginExchangeRequest(token, device))
+
+    override suspend fun registerPushToken(accessToken: String, token: String) {
+        val request = request("devices/current/push-token", accessToken)
+            .put(json.encodeToString(PushTokenRequest(token)).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        executeNoContent(request)
+    }
+
+    override suspend fun deletePushToken(accessToken: String) {
+        val request = request("devices/current/push-token", accessToken).delete().build()
+        executeNoContent(request)
+    }
 
     override suspend fun refresh(refreshToken: String): RefreshResponse =
         post("auth/refresh", RefreshRequest(refreshToken))
@@ -421,6 +439,9 @@ class VeejrApiClient(
     private data class OneTimeLoginExchangeRequest(val token: String, val device: DeviceInfo) {
         override fun toString(): String = "OneTimeLoginExchangeRequest(token=<redacted>, device=$device)"
     }
+
+    @Serializable
+    private data class PushTokenRequest(val token: String)
 
     @Serializable
     private class RefreshRequest(

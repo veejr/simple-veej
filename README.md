@@ -35,6 +35,16 @@ Android currently sends text, file attachments, and recorded audio and reads
 protocol-v1 message, location, note, and attachment payloads. Maps,
 contact-management, and group-editing flows remain on the parity roadmap.
 
+### Background notifications
+
+Android uses Firebase Cloud Messaging for content-free background message
+alerts. Add the app's `google-services.json` from the same Firebase project as
+the server's `FCM_SERVICE_ACCOUNT_JSON` to `app/google-services.json` before
+building a release. The file is a project configuration file rather than an
+application secret, but it is intentionally not committed because each release
+uses its own Firebase project. On Android 13 and later, users must also grant
+the system notification permission.
+
 ## Architecture
 
 The Phoenix server remains authoritative for authentication, authorization,

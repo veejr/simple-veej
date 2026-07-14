@@ -6,6 +6,10 @@ plugins {
 
 import java.util.Properties
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val releaseSigningProperties = Properties()
 val releaseSigningPropertiesFile = rootProject.file("keystore.properties")
 
@@ -89,6 +93,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.firebase.messaging)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

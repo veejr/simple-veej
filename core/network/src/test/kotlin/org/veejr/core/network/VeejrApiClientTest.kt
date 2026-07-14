@@ -67,7 +67,7 @@ class VeejrApiClientTest {
         assertEquals("POST", request.method)
         assertEquals("/api/v1/auth/login", request.path)
         assertEquals("application/json; charset=utf-8", request.getHeader("Content-Type"))
-        assertEquals("alice@example.test", body.getValue("email").jsonPrimitive.content)
+        assertEquals("alice@example.test", body.getValue("identifier").jsonPrimitive.content)
         assertEquals("account password", body.getValue("password").jsonPrimitive.content)
         assertEquals(
             "Alice's Pixel",

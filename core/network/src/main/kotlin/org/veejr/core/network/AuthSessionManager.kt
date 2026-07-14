@@ -31,6 +31,11 @@ class AuthSessionManager(
         return response.account
     }
 
+    suspend fun registerPushToken(token: String) =
+        withAccessToken { accessToken -> api.registerPushToken(accessToken, token) }
+
+    suspend fun deletePushToken() = withAccessToken { accessToken -> api.deletePushToken(accessToken) }
+
     suspend fun currentAccount(): Account =
         withAccessToken { accessToken -> api.me(accessToken).account }
 
