@@ -218,7 +218,14 @@ fun HomeScreen(
                     openConversation(target.subjectType, target.id)
                 }
             } else {
-                ConversationScreen(state, conversation, padding, onSend, onOpenAttachment)
+                ConversationScreen(
+                    state = state,
+                    conversation = conversation,
+                    padding = padding,
+                    onSend = onSend,
+                    onOpenAttachment = onOpenAttachment,
+                    onLoadMoreHistory = onLoadMoreHistory,
+                )
             }
             HomeTab.CONTACTS -> ContactsScreen(
                 state,
@@ -326,6 +333,7 @@ private fun ConversationScreen(
     padding: PaddingValues,
     onSend: (String, String, String, List<OutgoingAttachment>) -> Unit,
     onOpenAttachment: (MessageAttachment) -> Unit,
+    onLoadMoreHistory: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var selectedAttachments by remember(conversation.id) {
@@ -372,6 +380,24 @@ private fun ConversationScreen(
     val visibleMessages = conversationTimeline(state.messages, conversation)
     val listState = rememberLazyListState()
     val composerIndex = if (visibleMessages.isEmpty()) 2 else visibleMessages.size + 1
+
+    LaunchedEffect(
+        conversation.subjectType,
+        conversation.id,
+        state.historyLoaded,
+        state.historyNextCursor,
+        state.historyLoadingMore,
+        visibleMessages.size,
+    ) {
+        if (
+            state.historyLoaded &&
+            visibleMessages.size < MAX_CONVERSATION_MESSAGES &&
+            state.historyNextCursor != null &&
+            !state.historyLoadingMore
+        ) {
+            onLoadMoreHistory()
+        }
+    }
 
     LaunchedEffect(conversation.id, visibleMessages.size, draft, selectedAttachments.size) {
         listState.scrollToItem(composerIndex)
@@ -857,7 +883,9 @@ private fun conversationKey(conversation: ConversationTarget): String =
 internal fun conversationTimeline(
     messages: List<InboxMessage>,
     conversation: ConversationTarget,
-): List<InboxMessage> = messagesForConversation(messages, conversation).sortedBy(InboxMessage::createdAt)
+): List<InboxMessage> = messagesForConversation(messages, conversation)
+    .sortedBy(InboxMessage::createdAt)
+    .takeLast(MAX_CONVERSATION_MESSAGES)
 
 private fun messagePreview(message: InboxMessage, selfHandle: String): String {
     val content = when (message.kind) {
@@ -1520,6 +1548,7 @@ private fun attachmentViewIntent(
 }
 
 private const val MAX_IMAGE_PREVIEW_PIXELS = 2048
+private const val MAX_CONVERSATION_MESSAGES = 50
 private const val MAX_ATTACHMENTS_PER_MESSAGE = 10
 private const val MAX_ATTACHMENT_PLAINTEXT_BYTES = 25 * 1024 * 1024 - 16
 

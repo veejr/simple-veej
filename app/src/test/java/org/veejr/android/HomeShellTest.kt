@@ -39,6 +39,24 @@ class HomeShellTest {
     }
 
     @Test
+    fun `conversation timeline keeps only the newest 50 messages`() {
+        val bob = ConversationTarget("contact", "7", "@bob", setOf("@bob"))
+        val messages = (1..51).map { index ->
+            message(
+                id = "message-$index",
+                recipients = listOf("@alice", "@bob"),
+                createdAt = "2026-07-13T12:${index.toString().padStart(2, '0')}:00Z",
+            )
+        }
+
+        val timeline = conversationTimeline(messages.reversed(), bob)
+
+        assertEquals(50, timeline.size)
+        assertEquals("message-2", timeline.first().publicId)
+        assertEquals("message-51", timeline.last().publicId)
+    }
+
+    @Test
     fun `sent message labels omit the readable self copy`() {
         val toBob = message("bob", listOf("@alice", "@bob"))
         val toSelf = message("self", listOf("@alice"))
