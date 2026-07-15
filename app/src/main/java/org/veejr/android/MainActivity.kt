@@ -27,6 +27,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -49,8 +51,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import androidx.core.content.ContextCompat
@@ -225,15 +231,32 @@ private fun SecretField(
     onValueChange: (String) -> Unit,
     loading: Boolean,
 ) {
+    var passwordVisible by remember { mutableStateOf(false) }
+
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = if (passwordVisible) {
+            VisualTransformation.None
+        } else {
+            PasswordVisualTransformation()
+        },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         singleLine = true,
         enabled = !loading,
+        trailingIcon = {
+            IconButton(
+                onClick = { passwordVisible = !passwordVisible },
+                enabled = !loading,
+            ) {
+                Icon(
+                    imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    contentDescription = if (passwordVisible) "Hide $label" else "Show $label",
+                )
+            }
+        },
     )
 }
 
@@ -307,16 +330,7 @@ private fun LoginScreen(
             enabled = !state.loading,
         )
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Password") },
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            singleLine = true,
-            enabled = !state.loading,
-        )
+        SecretField("Password", password, { password = it }, state.loading)
         ErrorText(state.error)
         Spacer(Modifier.height(20.dp))
         Button(
