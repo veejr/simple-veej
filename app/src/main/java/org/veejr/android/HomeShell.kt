@@ -37,6 +37,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -69,8 +71,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -357,6 +366,35 @@ private fun ConversationScreen(
         onDispose { voiceRecorder.cancel() }
     }
 
+    fun submitDraft() {
+        if ((draft.isBlank() && selectedAttachments.isEmpty()) ||
+            state.loading ||
+            preparingAttachments
+        ) return
+
+        preparingAttachments = true
+        attachmentError = null
+        scope.launch {
+            runCatching {
+                val outgoing = readOutgoingAttachments(
+                    context,
+                    selectedAttachments,
+                )
+                onSend(
+                    conversation.subjectType,
+                    conversation.id,
+                    draft,
+                    outgoing,
+                )
+                draft = ""
+                selectedAttachments = emptyList()
+            }.onFailure {
+                attachmentError = it.message ?: "The attachments could not be read."
+            }
+            preparingAttachments = false
+        }
+    }
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
@@ -479,49 +517,28 @@ private fun ConversationScreen(
                         OutlinedTextField(
                             value = draft,
                             onValueChange = { draft = it },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                                        if (event.isShiftPressed) {
+                                            draft += "\n"
+                                        } else {
+                                            submitDraft()
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
                             placeholder = { Text("Message") },
                             minLines = 1,
                             maxLines = 4,
                             enabled = !state.loading && !preparingAttachments,
                             shape = RoundedCornerShape(24.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { submitDraft() }),
                         )
-                        Button(
-                            onClick = {
-                                preparingAttachments = true
-                                attachmentError = null
-                                scope.launch {
-                                    runCatching {
-                                        val outgoing = readOutgoingAttachments(
-                                            context,
-                                            selectedAttachments,
-                                        )
-                                        onSend(
-                                            conversation.subjectType,
-                                            conversation.id,
-                                            draft,
-                                            outgoing,
-                                        )
-                                        draft = ""
-                                        selectedAttachments = emptyList()
-                                    }.onFailure {
-                                        attachmentError = it.message ?: "The attachments could not be read."
-                                    }
-                                    preparingAttachments = false
-                                }
-                            },
-                            modifier = Modifier.padding(start = 8.dp).height(56.dp).widthIn(min = 72.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            enabled = (draft.isNotBlank() || selectedAttachments.isNotEmpty()) &&
-                                !state.loading && !preparingAttachments,
-                        ) {
-                            if (preparingAttachments) {
-                                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Send")
-                            }
-                        }
                     }
                     attachmentError?.let { message ->
                         Text(
