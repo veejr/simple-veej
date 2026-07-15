@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -106,6 +107,7 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .imePadding()
                     .padding(horizontal = if (state.screen == AppScreen.HOME) 0.dp else 24.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -390,7 +392,10 @@ private fun AppCard(content: @Composable ColumnScope.() -> Unit) {
         shadowElevation = 8.dp,
     ) {
         Column(
-            modifier = Modifier.padding(28.dp).verticalScroll(rememberScrollState()),
+            modifier = Modifier
+                .padding(28.dp)
+                .verticalScroll(rememberScrollState())
+                .imePadding(),
             content = content,
         )
     }
