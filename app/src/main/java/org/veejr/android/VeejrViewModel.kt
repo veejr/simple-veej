@@ -43,6 +43,8 @@ data class AppUiState(
     val loginMessage: String? = null,
     val notifications: List<PendingNotification> = emptyList(),
     val messages: List<InboxMessage> = emptyList(),
+    val unreadMessageIds: Set<String> = emptySet(),
+    val newMessageIds: Set<String> = emptySet(),
     val contacts: List<Recipient> = emptyList(),
     val groups: List<ContactGroup> = emptyList(),
     val deliveryPolicies: List<MessageDeliveryPolicy> = emptyList(),
@@ -265,6 +267,20 @@ class VeejrViewModel(
     }
 
     fun syncInbox() = viewModelScope.launch { loadInbox() }
+
+    fun markMessagesRead(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        mutableState.update { state ->
+            state.copy(unreadMessageIds = state.unreadMessageIds - ids)
+        }
+    }
+
+    fun consumeNewMessageFlash(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        mutableState.update { state ->
+            state.copy(newMessageIds = state.newMessageIds - ids)
+        }
+    }
 
     fun loadMoreHistory() = viewModelScope.launch {
         val manager = sessionManager ?: return@launch
@@ -600,6 +616,13 @@ class VeejrViewModel(
             val messages = openHistory(history.envelopes, secret)
             mutableState.update { state ->
                 val refreshedIds = messages.mapTo(mutableSetOf(), InboxMessage::publicId)
+                val newlyReceivedIds = if (state.historyLoaded) {
+                    messages
+                        .filter { !it.sentByMe && it.publicId !in state.messages.mapTo(mutableSetOf(), InboxMessage::publicId) }
+                        .mapTo(mutableSetOf(), InboxMessage::publicId)
+                } else {
+                    emptySet()
+                }
                 val mergedMessages = if (state.historyLoaded) {
                     messages + state.messages.filterNot { it.publicId in refreshedIds }
                 } else {
@@ -612,6 +635,8 @@ class VeejrViewModel(
                     groups = groups,
                     deliveryPolicies = policies,
                     messages = mergedMessages,
+                    unreadMessageIds = state.unreadMessageIds + newlyReceivedIds,
+                    newMessageIds = state.newMessageIds + newlyReceivedIds,
                     historyNextCursor = if (state.historyLoaded) {
                         state.historyNextCursor
                     } else {

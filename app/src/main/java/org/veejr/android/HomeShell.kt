@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,6 +130,8 @@ fun HomeScreen(
     onSavePrivateNote: (String, String, String) -> Unit,
     onLoadMoreHistory: () -> Unit,
     onOpenAttachment: (MessageAttachment) -> Unit,
+    onMarkMessagesRead: (Set<String>) -> Unit,
+    onConsumeNewMessageFlash: (Set<String>) -> Unit,
     onLogout: () -> Unit,
     onChangeInstance: () -> Unit,
 ) {
@@ -202,7 +205,18 @@ fun HomeScreen(
     ) { padding ->
         when (tab) {
             HomeTab.MESSAGES -> if (conversation == null) {
-                MessagesScreen(state, padding, onAccept, onDecline, openConversation)
+                MessagesScreen(
+                    state = state,
+                    padding = padding,
+                    onAccept = onAccept,
+                    onDecline = onDecline,
+                    unreadMessageIds = state.unreadMessageIds,
+                    newMessageIds = state.newMessageIds,
+                    onMarkMessagesRead = onMarkMessagesRead,
+                    onConsumeNewMessageFlash = onConsumeNewMessageFlash,
+                ) { target ->
+                    openConversation(target.subjectType, target.id)
+                }
             } else {
                 ConversationScreen(state, conversation, padding, onSend, onOpenAttachment)
             }
@@ -577,7 +591,11 @@ private fun MessagesScreen(
     padding: PaddingValues,
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
-    onOpenConversation: (String, String) -> Unit,
+    unreadMessageIds: Set<String>,
+    newMessageIds: Set<String>,
+    onMarkMessagesRead: (Set<String>) -> Unit,
+    onConsumeNewMessageFlash: (Set<String>) -> Unit,
+    onOpenConversation: (ConversationTarget) -> Unit,
 ) {
     val conversations = buildList {
         state.account?.let { account ->
@@ -610,6 +628,26 @@ private fun MessagesScreen(
                 messagesForConversation(state.messages, target).firstOrNull()?.createdAt.orEmpty()
             },
     )
+    var flashingConversationKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var flashOn by remember { mutableStateOf(false) }
+
+    LaunchedEffect(newMessageIds) {
+        if (newMessageIds.isEmpty()) return@LaunchedEffect
+
+        val newMessages = state.messages.filter { it.publicId in newMessageIds }
+        val newConversationKeys = conversations
+            .filter { target -> newMessages.any { message -> messageBelongsToConversation(message, target) } }
+            .mapTo(mutableSetOf()) { target -> conversationKey(target) }
+
+        flashingConversationKeys = flashingConversationKeys + newConversationKeys
+        repeat(6) { phase ->
+            flashOn = phase % 2 == 0
+            delay(180)
+        }
+        flashOn = false
+        flashingConversationKeys = flashingConversationKeys - newConversationKeys
+        onConsumeNewMessageFlash(newMessageIds)
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -650,10 +688,27 @@ private fun MessagesScreen(
         }
         items(conversations, key = { "${it.subjectType}-${it.id}" }) { target ->
             val latest = messagesForConversation(state.messages, target).firstOrNull()
+            val targetMessageIds = messagesForConversation(state.messages, target)
+                .mapTo(mutableSetOf(), InboxMessage::publicId)
+            val unread = targetMessageIds.any(unreadMessageIds::contains)
+            val flashing = conversationKey(target) in flashingConversationKeys && flashOn
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onOpenConversation(target.subjectType, target.id) }
+                    .background(
+                        if (flashing) {
+                            MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+                        } else if (unread) {
+                            MaterialTheme.colorScheme.error.copy(alpha = 0.06f)
+                        } else {
+                            Color.Transparent
+                        },
+                        RoundedCornerShape(18.dp),
+                    )
+                    .clickable {
+                        onMarkMessagesRead(targetMessageIds)
+                        onOpenConversation(target)
+                    }
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -665,6 +720,11 @@ private fun MessagesScreen(
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
+                            color = if (unread) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -673,7 +733,11 @@ private fun MessagesScreen(
                                 it.createdAt.replace('T', ' ').take(16),
                                 modifier = Modifier.padding(start = 8.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (unread) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                     }
@@ -684,7 +748,11 @@ private fun MessagesScreen(
                             ?: if (target.subjectType == "group") "Group · tap to start" else "Tap to start a message",
                         modifier = Modifier.padding(top = 3.dp),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (unread) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -768,7 +836,12 @@ private fun HistoryScreen(
 internal fun messagesForConversation(
     messages: List<InboxMessage>,
     conversation: ConversationTarget,
-): List<InboxMessage> = messages.filter { message ->
+): List<InboxMessage> = messages.filter { message -> messageBelongsToConversation(message, conversation) }
+
+private fun messageBelongsToConversation(
+    message: InboxMessage,
+    conversation: ConversationTarget,
+): Boolean =
     if (conversation.subjectType == "self") {
         message.sentByMe && message.recipientHandles.toSet() == conversation.memberHandles
     } else if (message.sentByMe) {
@@ -777,7 +850,9 @@ internal fun messagesForConversation(
     } else {
         message.senderHandle in conversation.memberHandles
     }
-}
+
+private fun conversationKey(conversation: ConversationTarget): String =
+    "${conversation.subjectType}:${conversation.id}"
 
 internal fun conversationTimeline(
     messages: List<InboxMessage>,

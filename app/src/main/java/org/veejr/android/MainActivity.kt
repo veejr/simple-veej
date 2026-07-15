@@ -144,6 +144,8 @@ fun VeejrApp(viewModel: VeejrViewModel) {
                             onSavePrivateNote = viewModel::savePrivateNote,
                             onLoadMoreHistory = viewModel::loadMoreHistory,
                             onOpenAttachment = viewModel::openAttachment,
+                            onMarkMessagesRead = viewModel::markMessagesRead,
+                            onConsumeNewMessageFlash = viewModel::consumeNewMessageFlash,
                             onLogout = {
                                 clearOpenedAttachmentCache(context)
                                 viewModel.logout()
