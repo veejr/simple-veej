@@ -968,6 +968,16 @@ private fun AccountScreen(
                         modifier = Modifier.padding(top = 18.dp),
                         style = MaterialTheme.typography.labelLarge,
                     )
+                    Text(
+                        when (state.fcmRegistrationStatus) {
+                            FcmRegistrationStatus.REGISTERED -> "FCM registered with server"
+                            FcmRegistrationStatus.NOT_REGISTERED -> "FCM not registered with server"
+                            FcmRegistrationStatus.UNKNOWN -> "FCM registration pending"
+                        },
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                 }
             }
         }

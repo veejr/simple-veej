@@ -96,9 +96,19 @@ fun VeejrApp(viewModel: VeejrViewModel) {
             ) {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                AndroidPushRegistration.register(context.applicationContext, token)
-            }
+            runCatching { FirebaseMessaging.getInstance().token }
+                .onSuccess { task ->
+                    task.addOnSuccessListener { token ->
+                        AndroidPushRegistration.register(
+                            context.applicationContext,
+                            token,
+                            viewModel::setFcmRegistrationStatus,
+                        )
+                    }.addOnFailureListener {
+                        viewModel.setFcmRegistrationStatus(false)
+                    }
+                }
+                .onFailure { viewModel.setFcmRegistrationStatus(false) }
         }
     }
     VeejrTheme {

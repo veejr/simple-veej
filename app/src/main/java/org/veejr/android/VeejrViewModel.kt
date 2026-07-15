@@ -31,10 +31,13 @@ import org.veejr.core.network.VeejrApiException
 
 enum class AppScreen { INSTANCE, LOGIN, KEY_SETUP, KEY_UNLOCK, HOME }
 
+enum class FcmRegistrationStatus { UNKNOWN, REGISTERED, NOT_REGISTERED }
+
 data class AppUiState(
     val screen: AppScreen = AppScreen.INSTANCE,
     val endpoint: String = "",
     val account: Account? = null,
+    val fcmRegistrationStatus: FcmRegistrationStatus = FcmRegistrationStatus.UNKNOWN,
     val loading: Boolean = true,
     val error: String? = null,
     val loginMessage: String? = null,
@@ -86,6 +89,18 @@ class VeejrViewModel(
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
     private var sessionManager: AuthSessionManager? = null
     private var identitySecret: ByteArray? = null
+
+    fun setFcmRegistrationStatus(registered: Boolean) {
+        mutableState.update {
+            it.copy(
+                fcmRegistrationStatus = if (registered) {
+                    FcmRegistrationStatus.REGISTERED
+                } else {
+                    FcmRegistrationStatus.NOT_REGISTERED
+                },
+            )
+        }
+    }
 
     init {
         restoreSession()

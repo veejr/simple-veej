@@ -12,6 +12,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.VeejrApiClient
@@ -59,13 +60,20 @@ class AndroidPushService : FirebaseMessagingService() {
 }
 
 object AndroidPushRegistration {
-    fun register(context: Context, token: String) {
+    fun register(context: Context, token: String, onResult: ((Boolean) -> Unit)? = null) {
         val storage = SessionVault(context)
-        val endpoint = storage.endpoint ?: return
+        val endpoint = storage.endpoint
+        if (endpoint == null) {
+            onResult?.invoke(false)
+            return
+        }
         CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
+            val registered = runCatching {
                 val api = VeejrApiClient(ApiEndpoint.parse(endpoint))
                 AuthSessionManager(api, storage).registerPushToken(token)
+            }.isSuccess
+            onResult?.let { callback ->
+                withContext(Dispatchers.Main) { callback(registered) }
             }
         }
     }
