@@ -12,6 +12,8 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
@@ -25,6 +27,7 @@ class AndroidPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        AndroidPushEvents.notifyIncoming()
         showNotification(message.data["sender"], message.data["kind"])
     }
 
@@ -56,6 +59,15 @@ class AndroidPushService : FirebaseMessagingService() {
     private companion object {
         const val CHANNEL_ID = "new_messages"
         const val NOTIFICATION_ID = 1001
+    }
+}
+
+object AndroidPushEvents {
+    private val mutableIncoming = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val incoming = mutableIncoming.asSharedFlow()
+
+    internal fun notifyIncoming() {
+        mutableIncoming.tryEmit(Unit)
     }
 }
 
