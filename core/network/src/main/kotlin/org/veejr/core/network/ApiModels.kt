@@ -208,6 +208,7 @@ data class MessageBatchRequest(
     val kind: String = "message",
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("max_displays") val maxDisplays: Int? = null,
+    @SerialName("attachment_ids") val attachmentIds: List<String> = emptyList(),
     val envelopes: List<MessageEnvelopeRequest>,
 )
 

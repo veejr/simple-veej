@@ -420,7 +420,13 @@ class VeejrViewModel(
                     attachmentDescriptors,
                 )
             }
-            val batch = manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
+            val batch = manager.sendMessageBatch(
+                idempotencyKey(),
+                MessageBatchRequest(
+                    attachmentIds = attachmentDescriptors.map { it.id },
+                    envelopes = envelopes,
+                ),
+            )
             val selfCopyId = batch.copies.firstOrNull { it.recipientId == account.id }?.publicId
             val message = InboxMessage(
                 publicId = selfCopyId ?: "local-${System.nanoTime()}",

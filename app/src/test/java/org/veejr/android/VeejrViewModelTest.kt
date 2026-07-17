@@ -277,6 +277,7 @@ class VeejrViewModelTest {
         assertEquals("voice.m4a", viewModel.state.value.messages.first().attachments.single().name)
         assertEquals("https://chat.example", viewModel.state.value.messages.first().attachments.single().origin)
         assertEquals(1, api.sentBatch?.envelopes?.size)
+        assertEquals(listOf("uploadedblob1234"), api.sentBatch?.attachmentIds)
         assertTrue(plaintext.all { it == 0.toByte() })
     }
 
