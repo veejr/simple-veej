@@ -33,7 +33,12 @@ data class CallPeer(val id: String, val name: String, val publicKey: String)
 sealed interface CallState {
     data object Idle : CallState
     data class Outgoing(val callId: String?, val peer: CallPeer) : CallState
-    data class Incoming(val callId: String, val peer: CallPeer?, val callerLabel: String) : CallState
+    data class Incoming(
+        val callId: String,
+        val peer: CallPeer?,
+        val callerLabel: String,
+        val expiresAtMillis: Long,
+    ) : CallState
     data class Active(val callId: String, val peer: CallPeer, val engine: CallEngine) : CallState
     data class Ended(val message: String) : CallState
 }
@@ -58,9 +63,15 @@ class CallController(
     private val mutableMuted = MutableStateFlow(false)
     val muted: StateFlow<Boolean> = mutableMuted.asStateFlow()
 
+    private val mutableSignedOut = MutableStateFlow(false)
+
+    /** True once the session could not be refreshed: the phone needs setup again. */
+    val signedOut: StateFlow<Boolean> = mutableSignedOut.asStateFlow()
+
     private var socket: PhoenixSocket? = null
     private var sealer: SignalSealer? = null
     private var clearEndedJob: Job? = null
+    private var timeoutJob: Job? = null
 
     val rtcEglContext: EglBase.Context get() = eglBase.eglBaseContext
 
@@ -70,18 +81,41 @@ class CallController(
         val endpoint = store.endpoint ?: return
         val apiBase = ApiEndpoint.parse(endpoint, allowHttp = BuildConfig.ALLOW_HTTP).uri.toString()
 
+        mutableSignedOut.value = false
         socket = PhoenixSocket(scope, PhoenixSocket.httpClient(), TOPIC) { refreshFirst ->
             if (refreshFirst) runCatching { sessions()?.currentAccount() }
-            store.load()?.let { PhoenixFrames.socketUrl(apiBase, it.accessToken) }
+            val tokens = store.load()
+            if (tokens == null) {
+                // The refresh token was rejected (device sessions last at most
+                // 90 days, or it was revoked). Nothing works until setup.
+                mutableSignedOut.value = true
+                socket = null
+            }
+            tokens?.let { PhoenixFrames.socketUrl(apiBase, it.accessToken) }
         }.also { phoenix ->
             phoenix.start()
             scope.launch { phoenix.events.collect(::onServerEvent) }
+            scope.launch { phoenix.joined.filterNotNull().collect { reattach(phoenix) } }
         }
     }
 
     fun stop() {
         socket?.stop()
         socket = null
+    }
+
+    // Each (re)join is a fresh server channel that knows nothing of this
+    // device's call. Re-accepting moves presence and signaling onto it before
+    // the old channel's 25-second grace ends the call (protocol §26.5).
+    private suspend fun reattach(phoenix: PhoenixSocket) {
+        val callId = when (val current = state.value) {
+            is CallState.Outgoing -> current.callId
+            is CallState.Active -> current.callId
+            else -> null
+        } ?: return
+
+        val reply = phoenix.push("accept", callIdPayload(callId))
+        if (reply != null && !reply.ok) end(endedMessage(reply.reason))
     }
 
     /** The one button: ring my person. */
@@ -104,6 +138,11 @@ class CallController(
             val current = state.value
             if (current is CallState.Outgoing && current.callId == null) {
                 setState(current.copy(callId = callId))
+                timeoutJob = scope.launch {
+                    delay(OUTGOING_TIMEOUT_MS)
+                    val still = state.value
+                    if (still is CallState.Outgoing && still.callId == callId) hangUp("No answer.")
+                }
             } else {
                 // Hung up while the start was in flight.
                 socket?.push("hangup", callIdPayload(callId))
@@ -138,14 +177,14 @@ class CallController(
         scope.launch { pushWhenJoined("decline", callIdPayload(callId)) }
     }
 
-    fun hangUp() {
+    fun hangUp(message: String = "Call ended.") {
         val callId = when (val current = state.value) {
             is CallState.Outgoing -> current.callId
             is CallState.Active -> current.callId
             is CallState.Incoming -> return decline(current.callId)
             else -> null
         }
-        end("Call ended.")
+        end(message)
         if (callId != null) scope.launch { socket?.push("hangup", callIdPayload(callId)) }
     }
 
@@ -158,8 +197,7 @@ class CallController(
     fun onPushRing(callId: String, callerLabel: String, expiresAtUnix: Long?) {
         if (expiresAtUnix != null && expiresAtUnix * 1000 < System.currentTimeMillis()) return
         if (state.value is CallState.Idle || state.value is CallState.Ended) {
-            setState(CallState.Incoming(callId, peer = null, callerLabel = callerLabel))
-            RingNotifier.show(context, callId, callerLabel)
+            ring(CallState.Incoming(callId, null, callerLabel, ringExpiry(expiresAtUnix)))
         }
         start()
     }
@@ -183,10 +221,8 @@ class CallController(
                 val caller = (payload["caller"] as? JsonObject)?.toPeer() ?: return
 
                 when (val current = state.value) {
-                    is CallState.Idle, is CallState.Ended -> {
-                        setState(CallState.Incoming(callId, caller, caller.name))
-                        RingNotifier.show(context, callId, caller.name)
-                    }
+                    is CallState.Idle, is CallState.Ended ->
+                        ring(CallState.Incoming(callId, caller, caller.name, ringExpiry(expiresAt)))
                     // Already ringing from the push: attach the peer's key.
                     is CallState.Incoming -> if (current.callId == callId) {
                         setState(current.copy(peer = caller, callerLabel = caller.name))
@@ -309,8 +345,33 @@ class CallController(
 
     private fun setState(next: CallState) {
         if (next !is CallState.Ended) clearEndedJob?.cancel()
+        // Timers belong to the state that set them.
+        if (next::class != mutableState.value::class) timeoutJob?.cancel()
         mutableState.value = next
     }
+
+    // The server marks an unanswered ring missed without telling anyone, so
+    // the phone stops ringing on its own clock.
+    private fun ring(incoming: CallState.Incoming) {
+        setState(incoming)
+        RingNotifier.show(context, incoming.callId, incoming.callerLabel)
+        timeoutJob?.cancel()
+        timeoutJob = scope.launch {
+            delay((incoming.expiresAtMillis - System.currentTimeMillis()).coerceAtLeast(0))
+            val still = state.value
+            if (still is CallState.Incoming && still.callId == incoming.callId) {
+                RingNotifier.cancel(context)
+                setState(CallState.Ended("Missed call from ${still.callerLabel}."))
+                clearEndedJob = scope.launch {
+                    delay(MISSED_BANNER_MS)
+                    if (state.value is CallState.Ended) setState(CallState.Idle)
+                }
+            }
+        }
+    }
+
+    private fun ringExpiry(expiresAtUnix: Long?): Long =
+        expiresAtUnix?.times(1000) ?: (System.currentTimeMillis() + DEFAULT_RING_MS)
 
     private suspend fun pushWhenJoined(event: String, payload: JsonObject): PhoenixReply? {
         start()
@@ -352,5 +413,10 @@ class CallController(
         const val TOPIC = "calls:v1"
         const val JOIN_WAIT_MS = 10_000L
         const val ENDED_BANNER_MS = 3_000L
+        const val MISSED_BANNER_MS = 60_000L
+        const val DEFAULT_RING_MS = 60_000L
+
+        // A little past the server's 60-second ring, so its answer wins a tie.
+        const val OUTGOING_TIMEOUT_MS = 70_000L
     }
 }

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun CallRoot() {
         val calls = app.calls
+        val signedOut by calls.signedOut.collectAsState()
+        LaunchedEffect(signedOut) { if (signedOut) setup.sessionExpired() }
+
         val state by calls.state.collectAsState()
         val muted by calls.muted.collectAsState()
         val engine by calls.engine.collectAsState()

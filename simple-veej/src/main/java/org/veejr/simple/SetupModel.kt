@@ -102,6 +102,14 @@ class SetupModel(application: Application) : AndroidViewModel(application) {
         mutableStep.value = SetupStep.Done
     }
 
+    /** The server refused this phone's session; setup is the only way back. */
+    fun sessionExpired() = viewModelScope.launch {
+        if (mutableStep.value != SetupStep.Done) return@launch
+        app.forget()
+        mutableError.value = "This phone was signed out. Please set it up again."
+        mutableStep.value = SetupStep.SignIn
+    }
+
     fun startOver() = viewModelScope.launch {
         app.forget()
         mutableError.value = null
