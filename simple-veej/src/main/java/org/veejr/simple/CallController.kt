@@ -261,7 +261,9 @@ class CallController(
                 )
                 // A signal that fails authentication was not sealed by the
                 // pinned peer key and is dropped.
-                sealer?.open(sealed)?.let(active.engine::onSignal)
+                val opened = sealer?.open(sealed)
+                if (opened == null) android.util.Log.w("SimpleVeejRtc", "dropped a signal that did not open")
+                opened?.let(active.engine::onSignal)
             }
 
             "ended" -> {

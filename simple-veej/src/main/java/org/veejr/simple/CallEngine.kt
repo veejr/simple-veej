@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.util.Log
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -146,6 +147,7 @@ class CallEngine(
 
     /** Applies one opened signal from the peer. */
     fun onSignal(signal: CallSignal) = scope.launch {
+        Log.d(TAG, "recv ${signal.describe()} signaling=${peerConnection?.signalingState()}")
         val pc = peerConnection ?: return@launch
         if (closed) return@launch
 
@@ -162,7 +164,7 @@ class CallEngine(
                 is CallSignal.MediaState -> mutablePeerMedia.value = signal
                 CallSignal.Other -> Unit
             }
-        }
+        }.onFailure { Log.w(TAG, "applying ${signal.describe()} failed", it) }
     }
 
     fun setMicrophoneEnabled(enabled: Boolean) = scope.launch {
@@ -202,6 +204,7 @@ class CallEngine(
         val offerCollision = type == SessionDescription.Type.OFFER && !readyForOffer
 
         ignoreOffer = !polite && offerCollision
+        Log.d(TAG, "description $type polite=$polite collision=$offerCollision ignore=$ignoreOffer")
         if (ignoreOffer) return
 
         if (offerCollision) {
@@ -232,8 +235,9 @@ class CallEngine(
             pc.localDescription
                 ?.takeIf { it.type == SessionDescription.Type.OFFER }
                 ?.let { send(CallSignal.Offer(it.description)) }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             // Recoverable: an ICE restart or a later negotiation tries again.
+            Log.w(TAG, "offer failed", error)
         } finally {
             makingOffer = false
         }
@@ -241,10 +245,12 @@ class CallEngine(
 
     private val observer = object : PeerConnection.Observer {
         override fun onRenegotiationNeeded() {
+            Log.d(TAG, "negotiation needed")
             negotiate()
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            Log.d(TAG, "local candidate ${candidate.sdp.substringAfter(" typ ").substringBefore(" ")} ${candidate.sdp.take(60)}")
             scope.launch {
                 send(CallSignal.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex))
             }
@@ -252,10 +258,12 @@ class CallEngine(
 
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
+            Log.d(TAG, "remote track ${track?.kind()} mid=${transceiver.mid}")
             if (track is VideoTrack) mutableRemoteVideo.value = track
         }
 
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+            Log.d(TAG, "connection $newState")
             scope.launch {
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
@@ -279,8 +287,12 @@ class CallEngine(
             }
         }
 
-        override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
-        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) = Unit
+        override fun onSignalingChange(state: PeerConnection.SignalingState) {
+            Log.d(TAG, "signaling $state")
+        }
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+            Log.d(TAG, "ice $state")
+        }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
@@ -317,6 +329,7 @@ class CallEngine(
     }
 
     companion object {
+        private const val TAG = "SimpleVeejRtc"
         private const val STREAM_ID = "simple-veej"
         private const val CAPTURE_WIDTH = 1280
         private const val CAPTURE_HEIGHT = 720
@@ -380,4 +393,12 @@ private fun sdpObserver(cont: kotlinx.coroutines.CancellableContinuation<Unit>) 
 
     override fun onCreateSuccess(description: SessionDescription?) = Unit
     override fun onCreateFailure(error: String?) = Unit
+}
+
+private fun CallSignal.describe(): String = when (this) {
+    is CallSignal.Offer -> "offer(${sdp.lineSequence().count { it.startsWith("m=") }} m-lines)"
+    is CallSignal.Answer -> "answer(${sdp.lineSequence().count { it.startsWith("m=") }} m-lines)"
+    is CallSignal.Ice -> "ice(${candidate.substringAfter(" typ ").substringBefore(" ")})"
+    is CallSignal.MediaState -> "media_state(audio=$audio video=$video)"
+    CallSignal.Other -> "other"
 }
