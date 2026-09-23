@@ -172,12 +172,40 @@ fun ChoosePersonScreen(friends: List<Recipient>, onChoose: (Recipient, String) -
 }
 
 @Composable
-fun SettingsScreen(personName: String, onBack: () -> Unit, onStartOver: () -> Unit) {
+fun SettingsScreen(
+    personName: String,
+    fullScreenAllowed: Boolean,
+    pushStatus: String,
+    onAllowFullScreen: () -> Unit,
+    onBack: () -> Unit,
+    onStartOver: () -> Unit,
+) {
     SetupFrame("Settings", "This phone calls $personName.", null) {
+        StatusRow("Rings when the app is closed", pushStatus)
+        StatusRow(
+            "Answer screen on the lock screen",
+            if (fullScreenAllowed) "Allowed" else "Not allowed",
+        )
+        if (!fullScreenAllowed) {
+            PrimaryButton("Allow lock-screen calls", busy = false, enabled = true, onClick = onAllowFullScreen)
+        }
         PrimaryButton("Back", busy = false, enabled = true, onClick = onBack)
         TextButton(onClick = onStartOver) {
             Text("Sign out and set up again", color = HangUpRed, fontSize = 18.sp)
         }
+    }
+}
+
+@Composable
+private fun StatusRow(label: String, value: String) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color.White, RoundedCornerShape(14.dp))
+            .padding(16.dp),
+    ) {
+        Text(label, fontSize = 16.sp, color = Color(0xFF4A4F57))
+        Text(value, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

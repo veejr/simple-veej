@@ -63,11 +63,37 @@ private val Ink = Color(0xFF0B0B0F)
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(personName: String, banner: String?, onCall: () -> Unit, onLongPressSettings: () -> Unit) {
+fun HomeScreen(
+    personName: String,
+    banner: String?,
+    fullScreenAllowed: Boolean,
+    onAllowFullScreen: () -> Unit,
+    onCall: () -> Unit,
+    onLongPressSettings: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
 
     Box(Modifier.fillMaxSize().background(Ink).systemBarsPadding(), contentAlignment = Alignment.Center) {
+        if (!fullScreenAllowed) {
+            // Without this, a locked phone only shows a small notification
+            // for a call instead of the big Answer screen.
+            Text(
+                "Tap here so calls can ring on the lock screen",
+                color = Ink,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFFFD166))
+                    .combinedClickable(onClick = onAllowFullScreen)
+                    .padding(18.dp),
+            )
+        }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier

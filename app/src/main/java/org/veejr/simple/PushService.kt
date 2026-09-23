@@ -14,6 +14,7 @@ class PushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        android.util.Log.d("SimpleVeejPush", "push ${data["type"]} priority=${message.priority}/${message.originalPriority}")
         val callId = data["call_id"] ?: return
         val calls = SimpleVeejApp.from(this).calls
 

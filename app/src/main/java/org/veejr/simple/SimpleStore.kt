@@ -77,6 +77,13 @@ class SimpleStore(context: Context) : SessionTokenStore {
             }
         }.apply()
 
+    /** When this phone last registered for call pushes, or null if it never did. */
+    var pushRegisteredAt: Long?
+        get() = preferences.getLong(PUSH_KEY, 0L).takeIf { it > 0 }
+        set(value) = preferences.edit().run {
+            if (value == null) remove(PUSH_KEY) else putLong(PUSH_KEY, value)
+        }.apply()
+
     /** Returns a fresh copy of the identity secret; the caller zeroes it. */
     fun identitySecret(): ByteArray? =
         preferences.getString(IDENTITY_KEY, null)?.let { encoded ->
@@ -175,6 +182,7 @@ class SimpleStore(context: Context) : SessionTokenStore {
         const val PERSON_KEY = "my_person"
         const val IDENTITY_KEY = "identity"
         const val TOKENS_KEY = "tokens"
+        const val PUSH_KEY = "push_registered_at"
         const val KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS = "simpleveej.store.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

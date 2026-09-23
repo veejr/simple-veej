@@ -350,6 +350,10 @@ class CallController(
         // Timers belong to the state that set them.
         if (next::class != mutableState.value::class) timeoutJob?.cancel()
         mutableState.value = next
+
+        // Whatever ended a ring or a call, its notifications go with it.
+        if (next !is CallState.Incoming) RingNotifier.cancel(context)
+        if (next is CallState.Idle || next is CallState.Ended) CallService.stop(context)
     }
 
     // The server marks an unanswered ring missed without telling anyone, so

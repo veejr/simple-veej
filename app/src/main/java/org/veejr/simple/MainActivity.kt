@@ -66,6 +66,19 @@ class MainActivity : ComponentActivity() {
         app.calls.start()
     }
 
+    // Permissions can change in Settings while we are away; re-read on return.
+    private val resumeCount = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    override fun onResume() {
+        super.onResume()
+        resumeCount.value += 1
+        if (app.store.isSetUp) app.refreshPushToken()
+    }
+
+    private fun openFullScreenSettings() {
+        runCatching { startActivity(RingReadiness.fullScreenSettings(this)) }
+    }
+
     @Composable
     private fun Root() {
         val step by setup.step.collectAsState()
@@ -100,6 +113,15 @@ class MainActivity : ComponentActivity() {
         val muted by calls.muted.collectAsState()
         val engine by calls.engine.collectAsState()
         var showSettings by remember { mutableStateOf(false) }
+        val resumes by resumeCount.collectAsState()
+        val fullScreenAllowed = remember(resumes) { RingReadiness.fullScreenAllowed(this) }
+        val pushStatus = remember(resumes) {
+            when {
+                !app.pushAvailable -> "Not available in this build"
+                app.store.pushRegisteredAt == null -> "Not registered yet"
+                else -> "Ready"
+            }
+        }
         val personName = app.store.myPerson?.name ?: "my person"
 
         when (val current = state) {
@@ -123,6 +145,9 @@ class MainActivity : ComponentActivity() {
             CallState.Idle, is CallState.Ended -> if (showSettings) {
                 SettingsScreen(
                     personName = personName,
+                    fullScreenAllowed = fullScreenAllowed,
+                    pushStatus = pushStatus,
+                    onAllowFullScreen = ::openFullScreenSettings,
                     onBack = { showSettings = false },
                     onStartOver = {
                         showSettings = false
@@ -133,6 +158,8 @@ class MainActivity : ComponentActivity() {
                 HomeScreen(
                     personName = personName,
                     banner = (current as? CallState.Ended)?.message,
+                    fullScreenAllowed = fullScreenAllowed,
+                    onAllowFullScreen = ::openFullScreenSettings,
                     onCall = { withPermissions { calls.callMyPerson() } },
                     onLongPressSettings = { showSettings = true },
                 )

@@ -48,13 +48,23 @@ class SimpleVeejApp : Application() {
         get() = FirebaseApp.getApps(this).isNotEmpty()
 
     fun refreshPushToken() {
-        if (!pushAvailable) return
+        if (!pushAvailable) {
+            android.util.Log.w("SimpleVeejPush", "Firebase is not configured in this build")
+            return
+        }
         FirebaseMessaging.getInstance().token.addOnSuccessListener(::registerPushToken)
     }
 
     fun registerPushToken(token: String) {
         if (!store.isSetUp) return
-        scope.launch { runCatching { sessions()?.registerPushToken(token) } }
+        scope.launch {
+            runCatching { sessions()?.registerPushToken(token) }
+                .onSuccess {
+                    store.pushRegisteredAt = System.currentTimeMillis()
+                    android.util.Log.d("SimpleVeejPush", "push token registered with the server")
+                }
+                .onFailure { android.util.Log.w("SimpleVeejPush", "push token registration failed", it) }
+        }
     }
 
     /** Signs this phone out and forgets its setup. */
