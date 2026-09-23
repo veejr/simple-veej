@@ -1,5 +1,6 @@
 package org.veejr.simple.ui
 
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -24,7 +25,18 @@ fun VideoView(
     val context = LocalContext.current
     val renderer = remember {
         SurfaceViewRenderer(context).apply {
-            init(eglContext, null)
+            init(
+                eglContext,
+                object : RendererCommon.RendererEvents {
+                    override fun onFirstFrameRendered() {
+                        Log.d("SimpleVeejRtc", "first frame rendered track=${track.id()} mirror=$mirror")
+                    }
+
+                    override fun onFrameResolutionChanged(width: Int, height: Int, rotation: Int) {
+                        Log.d("SimpleVeejRtc", "frame ${width}x$height rot=$rotation track=${track.id()}")
+                    }
+                },
+            )
             setMirror(mirror)
             setEnableHardwareScaler(true)
             setScalingType(

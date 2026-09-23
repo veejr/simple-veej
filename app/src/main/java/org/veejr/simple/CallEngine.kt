@@ -52,8 +52,8 @@ enum class MediaConnection { New, Connecting, Connected, Reconnecting, Failed }
  * Negotiation follows the same *perfect negotiation* pattern as the browser's
  * `CallPeer` (veejr `assets/js/veejr/call_peer.js`), so either end may offer
  * and a collision resolves by the polite side yielding. Everything that
- * touches the peer connection runs on one dedicated thread, which is what
- * makes the `makingOffer` / `ignoreOffer` flags safe.
+ * touches the peer connection runs on one dedicated thread, and each
+ * negotiation step completes before the next one starts.
  */
 class CallEngine(
     private val context: Context,
@@ -77,11 +77,15 @@ class CallEngine(
     private var polite = false
     private var send: (CallSignal) -> Unit = {}
 
-    private var makingOffer = false
+    // Offers, answers, and candidates are applied strictly one at a time, in
+    // arrival order. Interleaving two of them across a suspension point let
+    // one negotiation read the other's local description, so the yielding
+    // side sent its own offer back labelled as an answer.
+    private val negotiation = kotlinx.coroutines.sync.Mutex()
     private var ignoreOffer = false
-    private var isSettingRemoteAnswerPending = false
     private val pendingIce = mutableListOf<IceCandidate>()
     private var restartAttempts = 0
+    private var statsJob: kotlinx.coroutines.Job? = null
 
     private var capturer: CameraVideoCapturer? = null
     private var textureHelper: SurfaceTextureHelper? = null
@@ -152,6 +156,8 @@ class CallEngine(
         if (closed) return@launch
 
         runCatching {
+            negotiation.lock()
+            try {
             when (signal) {
                 is CallSignal.Offer -> applyDescription(pc, SessionDescription.Type.OFFER, signal.sdp)
                 is CallSignal.Answer -> applyDescription(pc, SessionDescription.Type.ANSWER, signal.sdp)
@@ -163,6 +169,9 @@ class CallEngine(
                 }
                 is CallSignal.MediaState -> mutablePeerMedia.value = signal
                 CallSignal.Other -> Unit
+            }
+            } finally {
+                negotiation.unlock()
             }
         }.onFailure { Log.w(TAG, "applying ${signal.describe()} failed", it) }
     }
@@ -197,11 +206,47 @@ class CallEngine(
         }
     }
 
-    // The perfect-negotiation core; mirrors CallPeer.applySignal.
+    // Diagnostics: whether video frames actually flow each way, and over
+    // which candidate pair. Logged only; nothing leaves the device.
+    private fun logStatsWhileConnected() {
+        if (statsJob?.isActive == true) return
+        statsJob = scope.launch {
+            repeat(STATS_SAMPLES) {
+                kotlinx.coroutines.delay(STATS_INTERVAL_MS)
+                val pc = peerConnection ?: return@launch
+                pc.getStats { report ->
+                    val stats = report.statsMap.values
+                    fun num(m: Map<String, Any>, key: String) = m[key]?.toString() ?: "-"
+                    val inbound = stats.firstOrNull { it.type == "inbound-rtp" && it.members["kind"] == "video" }?.members
+                    val outbound = stats.firstOrNull { it.type == "outbound-rtp" && it.members["kind"] == "video" }?.members
+                    val pair = stats.firstOrNull {
+                        it.type == "candidate-pair" && it.members["nominated"] == true && it.members["state"] == "succeeded"
+                    }?.members
+                    val localType = pair?.let { report.statsMap[it["localCandidateId"]]?.members?.get("candidateType") }
+                    val remoteType = pair?.let { report.statsMap[it["remoteCandidateId"]]?.members?.get("candidateType") }
+                    Log.d(
+                        TAG,
+                        "stats in[recv=${inbound?.let { num(it, "framesReceived") }} " +
+                            "dec=${inbound?.let { num(it, "framesDecoded") }} " +
+                            "${inbound?.let { num(it, "frameWidth") }}x${inbound?.let { num(it, "frameHeight") }} " +
+                            "bytes=${inbound?.let { num(it, "bytesReceived") }}] " +
+                            "out[enc=${outbound?.let { num(it, "framesEncoded") }} " +
+                            "sent=${outbound?.let { num(it, "framesSent") }} " +
+                            "limit=${outbound?.let { num(it, "qualityLimitationReason") }}] " +
+                            "pair=$localType->$remoteType peerVideo=${mutablePeerMedia.value.video} " +
+                            "remoteTrack=${mutableRemoteVideo.value?.id()}",
+                    )
+                }
+            }
+        }
+    }
+
+    // The perfect-negotiation core; mirrors CallPeer.applySignal. Runs under
+    // [negotiation], so an offer of ours is either fully set (and visible as
+    // HAVE_LOCAL_OFFER) or not started — never half-made.
     private suspend fun applyDescription(pc: PeerConnection, type: SessionDescription.Type, sdp: String) {
-        val readyForOffer = !makingOffer &&
-            (pc.signalingState() == PeerConnection.SignalingState.STABLE || isSettingRemoteAnswerPending)
-        val offerCollision = type == SessionDescription.Type.OFFER && !readyForOffer
+        val offerCollision = type == SessionDescription.Type.OFFER &&
+            pc.signalingState() != PeerConnection.SignalingState.STABLE
 
         ignoreOffer = !polite && offerCollision
         Log.d(TAG, "description $type polite=$polite collision=$offerCollision ignore=$ignoreOffer")
@@ -212,13 +257,14 @@ class CallEngine(
             pc.setLocal(SessionDescription(SessionDescription.Type.ROLLBACK, ""))
         }
 
-        isSettingRemoteAnswerPending = type == SessionDescription.Type.ANSWER
         pc.setRemote(SessionDescription(type, sdp))
-        isSettingRemoteAnswerPending = false
 
         if (type == SessionDescription.Type.OFFER) {
-            pc.setLocalImplicit()
-            pc.localDescription?.let { send(CallSignal.Answer(it.description)) }
+            // Send exactly the answer we created, never whatever the
+            // connection's local description happens to be afterwards.
+            val answer = pc.create { observer -> createAnswer(observer, MediaConstraints()) }
+            pc.setLocal(answer)
+            send(CallSignal.Answer(answer.description))
         }
 
         val queued = pendingIce.toList()
@@ -227,19 +273,20 @@ class CallEngine(
     }
 
     private fun negotiate() = scope.launch {
-        val pc = peerConnection ?: return@launch
-        if (closed) return@launch
+        negotiation.lock()
         try {
-            makingOffer = true
-            pc.setLocalImplicit()
-            pc.localDescription
-                ?.takeIf { it.type == SessionDescription.Type.OFFER }
-                ?.let { send(CallSignal.Offer(it.description)) }
+            val pc = peerConnection ?: return@launch
+            // A remote offer applied meanwhile already renegotiated; a
+            // half-finished exchange will raise negotiation-needed again.
+            if (closed || pc.signalingState() != PeerConnection.SignalingState.STABLE) return@launch
+            val offer = pc.create { observer -> createOffer(observer, MediaConstraints()) }
+            pc.setLocal(offer)
+            send(CallSignal.Offer(offer.description))
         } catch (error: Exception) {
             // Recoverable: an ICE restart or a later negotiation tries again.
             Log.w(TAG, "offer failed", error)
         } finally {
-            makingOffer = false
+            negotiation.unlock()
         }
     }
 
@@ -269,6 +316,7 @@ class CallEngine(
                     PeerConnection.PeerConnectionState.CONNECTED -> {
                         restartAttempts = 0
                         mutableConnection.value = MediaConnection.Connected
+                        logStatsWhileConnected()
                     }
                     PeerConnection.PeerConnectionState.DISCONNECTED ->
                         mutableConnection.value = MediaConnection.Reconnecting
@@ -335,6 +383,8 @@ class CallEngine(
         private const val CAPTURE_HEIGHT = 720
         private const val CAPTURE_FPS = 30
         private const val MAX_ICE_RESTARTS = 2
+        private const val STATS_SAMPLES = 10
+        private const val STATS_INTERVAL_MS = 2_000L
 
         fun createFactory(context: Context, eglBase: EglBase): PeerConnectionFactory {
             PeerConnectionFactory.initialize(
@@ -372,8 +422,23 @@ class CallEngine(
     }
 }
 
-private suspend fun PeerConnection.setLocalImplicit() = suspendCancellableCoroutine { cont ->
-    setLocalDescription(sdpObserver(cont))
+private suspend fun PeerConnection.create(
+    start: PeerConnection.(SdpObserver) -> Unit,
+): SessionDescription = suspendCancellableCoroutine { cont ->
+    start(
+        object : SdpObserver {
+            override fun onCreateSuccess(description: SessionDescription) {
+                if (cont.isActive) cont.resume(description)
+            }
+
+            override fun onCreateFailure(error: String?) {
+                if (cont.isActive) cont.resumeWithException(IllegalStateException(error ?: "SDP create failed"))
+            }
+
+            override fun onSetSuccess() = Unit
+            override fun onSetFailure(error: String?) = Unit
+        },
+    )
 }
 
 private suspend fun PeerConnection.setLocal(description: SessionDescription) =
