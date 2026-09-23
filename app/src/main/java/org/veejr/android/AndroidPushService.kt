@@ -27,6 +27,9 @@ class AndroidPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        // Call rings are for calling clients such as simple-veej; this app
+        // cannot answer them and has nothing new to sync.
+        if (message.data["type"]?.startsWith("call_ring") == true) return
         AndroidPushEvents.notifyIncoming()
         showNotification(message.data["sender"], message.data["kind"])
     }
