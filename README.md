@@ -1,150 +1,69 @@
-# veejr for Android
+# simple-veej
 
-Native Android client for [veejr](https://github.com/veejr/veejr-server), a
-self-hostable Phoenix application for end-to-end encrypted messages,
-attachments, locations, and map notes.
+A one-button Android video phone for veejr. The home screen is a single
+green button, "Call Mom", that rings one chosen veejr friend. Incoming calls
+show two buttons, Answer and Decline, and a call shows Mute and Hang up.
 
-> **Status:** early native client with instance selection, authentication,
-> encrypted session persistence, portable identity-key setup/unlock, foreground
-> sync, message consent, encrypted conversations, attachment viewing, and
-> history browsing.
+It is built for someone who should never see a menu. Setup happens once,
+usually by whoever hands over the phone.
 
-## Current experience
+## How it works
 
-The Compose interface follows the server application's information model while
-using mobile-first navigation:
-
-- **Messages** is a WhatsApp-style conversation list combining contacts and
-  groups. It shows the latest decrypted item, handles pending consent requests,
-  and opens an encrypted conversation with its own composer.
-- **Attachments** appear inside message bubbles. They are fetched as opaque
-  encrypted blobs only when requested, authenticated and decrypted locally,
-  previewed inline for images, and opened through Android's installed viewer
-  for PDF, audio, and other supported file types. The composer can pick up to
-  ten files or launch the device's audio recorder; every result is encrypted
-  locally before upload.
-- **History** opens from Account as a dedicated chronological encrypted feed.
-  It can be filtered by Everything, Messages, Locations, or Notes and loads the
-  next 50 envelopes as the reader approaches the end.
-- **Contacts** and **Groups** open conversations when tapped and expose
-  expandable delivery-policy and private-note settings.
-- **Account** shows the active instance and unlocked identity state and provides
-  history, sign-out, and instance-reset actions.
-
-Android currently sends text, file attachments, and recorded audio and reads
-protocol-v1 message, location, note, and attachment payloads. Maps,
-contact-management, and group-editing flows remain on the parity roadmap.
-
-### Background notifications
-
-Android uses Firebase Cloud Messaging for content-free background message
-alerts. Add the app's `google-services.json` from the same Firebase project as
-the server's `FCM_SERVICE_ACCOUNT_JSON` to `app/google-services.json` before
-building a release. The file is a project configuration file rather than an
-application secret, but it is intentionally not committed because each release
-uses its own Firebase project. On Android 13 and later, users must also grant
-the system notification permission.
-
-## Architecture
-
-The Phoenix server remains authoritative for authentication, authorization,
-ciphertext storage, consent, federation, and delivery. Encryption and
-decryption happen exclusively on the Android device.
-
-The canonical contract is the
-[veejr client protocol v1](https://github.com/veejr/veejr-server/blob/main/docs/CLIENT_PROTOCOL_V1.md).
+- **Setup (once):** sign in, enter the encryption passphrase once, and pick
+  the person and the name shown on the button. The identity key is kept on
+  the device, encrypted by a non-exportable Android Keystore key (the
+  device-local copy allowed by client protocol v1 §8). Calls never ask for the
+  passphrase.
+- **Calling:** the app speaks the `calls: 1` extension of client protocol v1
+  (`veejr-server/docs/CLIENT_PROTOCOL_V1.md` §26). A Phoenix channel at
+  `/api/v1/socket` drives the existing server call lifecycle. Every SDP/ICE
+  signal is sealed with `nacl.box` to the peer's pinned key, and media goes
+  peer to peer over WebRTC. A simple-veej phone and a veejr browser tab can
+  call each other.
+- **Ringing while closed:** the server sends a content-free, high-priority FCM
+  data message. The app shows a full-screen call notification and answers
+  over the socket.
+- **Settings:** long-press the big button.
 
 ## Build
 
-Prerequisites:
-
-- JDK 17
-- Android SDK 35
+JDK 17+ and Android SDK 35. On Apple Silicon without Rosetta,
+point Gradle at Android Studio's bundled arm64 runtime:
 
 ```sh
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-The initial project uses Kotlin, Jetpack Compose, and a small multi-module
-boundary around models, networking, and cryptography.
+The debug build defaults to `http://127.0.0.1:4000`; run
+`adb reverse tcp:4000 tcp:4000` so the phone reaches Phoenix on the development machine.
+Release builds default to the production instance and require HTTPS.
 
-## Local development
+### Push (optional)
 
-Start Phoenix on the host:
+To ring a phone while the app is closed, register an Android app with the
+package `org.veejr.simpleveej` in the **same** Firebase project as the
+server's `FCM_SERVICE_ACCOUNT_JSON`. Put its `google-services.json` in `app/`;
+it is git-ignored. Without it, the app rings only while it is
+running.
 
-```sh
-cd /path/to/veejr-server
-mix phx.server
-```
+## Server requirement
 
-For an emulator or physical Android device running the `debug` variant, connect
-the device with ADB and verify that it appears:
+The instance must run a veejr server with the native calls extension
+(`GET /api/v1/capabilities` includes `"extensions": {"calls": 1}`).
 
-```sh
-adb devices -l
-```
+## Relationship to veejr-android
 
-Then reverse the development port before launching the app:
+This repository is a fork of `veejr/veejr-android`. It keeps the shared
+`core:*` modules (protocol models, networking, and cryptography) and replaces
+the full messaging app with the simple-veej calling app in `app/`.
 
-```sh
-adb reverse tcp:4000 tcp:4000
-```
-
-The debug app defaults to `http://127.0.0.1:4000`. HTTP is accepted only by
-debug builds; release builds require HTTPS and disable Android cleartext
-traffic.
-
-## Production release
-
-The release variant defaults to `https://veejr.dyndns-server.com` and accepts
-only HTTPS instance URLs. Before distributing it, verify that
-`https://veejr.dyndns-server.com/api/v1/capabilities` is reachable from a
-phone on the public internet.
-
-Release signing is local-only. Copy `keystore.properties.example` to
-`keystore.properties`, point it at the release keystore, and keep both files
-backed up outside the repository. They are deliberately ignored by Git;
-losing the signing key prevents publishing future updates with the same app
-identity.
-
-Build a signed installable APK:
+Keep the core in step with the messaging app by merging from upstream:
 
 ```sh
-./gradlew assembleRelease
+git remote add upstream https://github.com/veejr/veejr-android.git
+git fetch upstream
+git merge upstream/main   # resolve: keep this repo's app/, take upstream core/
 ```
 
-Build the signed Android App Bundle required by Google Play:
-
-```sh
-./gradlew bundleRelease
-```
-
-Artifacts are written to `app/build/outputs/apk/release/` and
-`app/build/outputs/bundle/release/` respectively. Do not distribute until the
-signed release can connect and sign in against the production instance.
-
-Verify the active mapping with:
-
-```sh
-adb reverse --list
-```
-
-The output should contain `tcp:4000 tcp:4000`. The mapping belongs to the
-connected device and can disappear when the device disconnects, wireless
-debugging reconnects, or ADB restarts. Run the reverse command again whenever
-the Android app reports that `http://127.0.0.1:4000` cannot be reached.
-
-If more than one device is connected, target the intended device explicitly:
-
-```sh
-adb -s DEVICE_SERIAL reverse tcp:4000 tcp:4000
-```
-
-Also confirm that Phoenix is still listening on port 4000 on the development
-machine. `127.0.0.1` without ADB reversal refers only to the Android device
-itself; it does not reach the development machine directly.
-
-## Security
-
-Review [docs/SECURITY.md](docs/SECURITY.md) before implementing features that
-handle keys, plaintext, tokens, or decrypted files.
+Fixes to `core/` that are made here should be sent upstream as well.

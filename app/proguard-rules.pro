@@ -1,1 +1,2 @@
-# Feature-specific rules belong next to the dependency that needs them.
+# libwebrtc calls back into these classes from native code by name.
+-keep class org.webrtc.** { *; }

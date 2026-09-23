@@ -17,10 +17,9 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "veejr-android"
+rootProject.name = "simple-veej"
 
 include(":app")
-include(":simple-veej")
 include(":core:crypto")
 include(":core:model")
 include(":core:network")

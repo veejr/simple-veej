@@ -6,6 +6,8 @@ plugins {
 
 import java.util.Properties
 
+// FCM is optional: without this app's own google-services.json the app still
+// rings while it is open, but cannot be woken by a push.
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -18,16 +20,17 @@ if (releaseSigningPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "org.veejr.android"
+    namespace = "org.veejr.simple"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "org.veejr.android"
+        applicationId = "org.veejr.simpleveej"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-alpha01"
         buildConfigField("String", "DEFAULT_INSTANCE_URL", "\"https://veejr.dyndns-server.com\"")
+        buildConfigField("boolean", "ALLOW_HTTP", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -46,10 +49,13 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("String", "DEFAULT_INSTANCE_URL", "\"http://127.0.0.1:4000\"")
+            buildConfigField("boolean", "ALLOW_HTTP", "true")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -84,24 +90,21 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // Firebase pulls in an old fragment; activity-result APIs need >= 1.3.
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    implementation(platform(libs.okhttp.bom))
+    implementation(libs.okhttp)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.firebase.messaging)
-
-    debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation(libs.stream.webrtc)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
-    androidTestImplementation(libs.androidx.test.ext.junit)
-    androidTestImplementation(libs.androidx.test.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

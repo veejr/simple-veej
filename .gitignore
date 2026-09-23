@@ -14,5 +14,3 @@ captures/
 *.keystore
 keystore.properties
 app/release/
-simple-veej/google-services.json
-simple-veej/release/
