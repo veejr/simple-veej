@@ -17,9 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.veejr.core.network.Recipient
@@ -85,15 +91,7 @@ fun SignInScreen(defaultServer: String, busy: Boolean, error: String?, onSignIn:
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
-            password,
-            { password = it },
-            label = { Text("Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SecretField(password, { password = it }, "Password")
         PrimaryButton("Sign in", busy, enabled = email.isNotBlank() && password.isNotEmpty()) {
             val chars = password.toCharArray()
             password = ""
@@ -108,18 +106,10 @@ fun UnlockScreen(busy: Boolean, error: String?, onUnlock: (CharArray) -> Unit, o
 
     SetupFrame(
         "Unlock once",
-        "Enter the encryption passphrase one time. This phone keeps the key locked in its secure hardware, so calls never ask for it again.",
+        "Enter your privacy key (the encryption passphrase) one time. This phone keeps the key locked in its secure hardware, so calls never ask for it again.",
         error,
     ) {
-        OutlinedTextField(
-            passphrase,
-            { passphrase = it },
-            label = { Text("Encryption passphrase") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        SecretField(passphrase, { passphrase = it }, "Privacy key")
         PrimaryButton("Unlock", busy, enabled = passphrase.isNotEmpty()) {
             val chars = passphrase.toCharArray()
             passphrase = ""
@@ -194,6 +184,34 @@ fun SettingsScreen(
             Text("Sign out and set up again", color = HangUpRed, fontSize = 18.sp)
         }
     }
+}
+
+/**
+ * A password-style field with an eye button, so a long password or privacy
+ * key can be checked before it is submitted. Hidden again by default each
+ * time the screen appears.
+ */
+@Composable
+private fun SecretField(value: String, onValueChange: (String) -> Unit, label: String) {
+    var visible by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value,
+        onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (visible) "Hide $label" else "Show $label",
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
