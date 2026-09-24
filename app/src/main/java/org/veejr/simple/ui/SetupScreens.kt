@@ -166,12 +166,17 @@ fun SettingsScreen(
     personName: String,
     fullScreenAllowed: Boolean,
     pushStatus: String,
+    pushReady: Boolean,
+    onRegisterPush: () -> Unit,
     onAllowFullScreen: () -> Unit,
     onBack: () -> Unit,
     onStartOver: () -> Unit,
 ) {
     SetupFrame("Settings", "This phone calls $personName.", null) {
         StatusRow("Rings when the app is closed", pushStatus)
+        if (!pushReady) {
+            PrimaryButton("Register now", busy = false, enabled = true, onClick = onRegisterPush)
+        }
         StatusRow(
             "Answer screen on the lock screen",
             if (fullScreenAllowed) "Allowed" else "Not allowed",

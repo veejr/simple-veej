@@ -115,12 +115,13 @@ class MainActivity : ComponentActivity() {
         var showSettings by remember { mutableStateOf(false) }
         val resumes by resumeCount.collectAsState()
         val fullScreenAllowed = remember(resumes) { RingReadiness.fullScreenAllowed(this) }
-        val pushStatus = remember(resumes) {
-            when {
-                !app.pushAvailable -> "Not available in this build"
-                app.store.pushRegisteredAt == null -> "Not registered yet"
-                else -> "Ready"
-            }
+        val push by app.pushStatus.collectAsState()
+        val pushStatus = when (val status = push) {
+            PushStatus.Unavailable -> "Not available in this build"
+            PushStatus.NotRegistered -> "Not registered yet"
+            PushStatus.Registering -> "Registering…"
+            is PushStatus.Ready -> "Ready"
+            is PushStatus.Failed -> "Not working: ${status.reason}"
         }
         val personName = app.store.myPerson?.name ?: "my person"
 
@@ -147,6 +148,8 @@ class MainActivity : ComponentActivity() {
                     personName = personName,
                     fullScreenAllowed = fullScreenAllowed,
                     pushStatus = pushStatus,
+                    pushReady = push is PushStatus.Ready,
+                    onRegisterPush = app::refreshPushToken,
                     onAllowFullScreen = ::openFullScreenSettings,
                     onBack = { showSettings = false },
                     onStartOver = {

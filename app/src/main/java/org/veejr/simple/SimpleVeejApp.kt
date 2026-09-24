@@ -8,11 +8,22 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.veejr.core.network.ApiEndpoint
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.DeviceInfo
 import org.veejr.core.network.VeejrApiClient
+
+sealed interface PushStatus {
+    data object Unavailable : PushStatus
+    data object NotRegistered : PushStatus
+    data object Registering : PushStatus
+    data class Ready(val since: Long) : PushStatus
+    data class Failed(val reason: String) : PushStatus
+}
 
 class SimpleVeejApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -47,23 +58,50 @@ class SimpleVeejApp : Application() {
     val pushAvailable: Boolean
         get() = FirebaseApp.getApps(this).isNotEmpty()
 
+    // Lazy: it reads storage, which needs the context attached after construction.
+    private val mutablePushStatus by lazy { MutableStateFlow(initialPushStatus()) }
+
+    /** Whether a closed app can be woken for a ring, kept current for Settings. */
+    val pushStatus: StateFlow<PushStatus> get() = mutablePushStatus.asStateFlow()
+
+    private fun initialPushStatus(): PushStatus = when {
+        !pushAvailable -> PushStatus.Unavailable
+        else -> store.pushRegisteredAt?.let(PushStatus::Ready) ?: PushStatus.NotRegistered
+    }
+
     fun refreshPushToken() {
         if (!pushAvailable) {
             android.util.Log.w("SimpleVeejPush", "Firebase is not configured in this build")
+            mutablePushStatus.value = PushStatus.Unavailable
             return
         }
-        FirebaseMessaging.getInstance().token.addOnSuccessListener(::registerPushToken)
+        if (mutablePushStatus.value !is PushStatus.Ready) mutablePushStatus.value = PushStatus.Registering
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener(::registerPushToken)
+            .addOnFailureListener { error ->
+                android.util.Log.w("SimpleVeejPush", "could not get a push token", error)
+                mutablePushStatus.value = PushStatus.Failed(
+                    "This phone could not get a push token from Google (${error.message ?: "no details"}).",
+                )
+            }
     }
 
     fun registerPushToken(token: String) {
         if (!store.isSetUp) return
         scope.launch {
-            runCatching { sessions()?.registerPushToken(token) }
+            runCatching { checkNotNull(sessions()) { "not signed in" }.registerPushToken(token) }
                 .onSuccess {
-                    store.pushRegisteredAt = System.currentTimeMillis()
+                    val now = System.currentTimeMillis()
+                    store.pushRegisteredAt = now
+                    mutablePushStatus.value = PushStatus.Ready(now)
                     android.util.Log.d("SimpleVeejPush", "push token registered with the server")
                 }
-                .onFailure { android.util.Log.w("SimpleVeejPush", "push token registration failed", it) }
+                .onFailure { error ->
+                    android.util.Log.w("SimpleVeejPush", "push token registration failed", error)
+                    mutablePushStatus.value = PushStatus.Failed(
+                        "The veejr server did not accept this phone (${error.message ?: "no details"}).",
+                    )
+                }
         }
     }
 
