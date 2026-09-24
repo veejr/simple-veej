@@ -212,7 +212,7 @@ fun InCallScreen(
 
     Box(Modifier.fillMaxSize().background(Ink)) {
         if (remote != null && peerMedia.video) {
-            VideoView(remote!!, eglContext, Modifier.fillMaxSize())
+            ZoomableVideo(remote!!, eglContext, Modifier.fillMaxSize())
         } else {
             Text(
                 personName,
