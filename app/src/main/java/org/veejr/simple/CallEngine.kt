@@ -85,6 +85,13 @@ class CallEngine(
     private var ignoreOffer = false
     private val pendingIce = mutableListOf<IceCandidate>()
     private var restartAttempts = 0
+    private var rebuildAttempts = 0
+    private var rtcConfig: PeerConnection.RTCConfiguration? = null
+    private var disconnectJob: kotlinx.coroutines.Job? = null
+
+    // Each peer connection gets its own observer tagged with this number, so
+    // late callbacks from a connection that was replaced are ignored.
+    @Volatile private var generation = 0
     private var statsJob: kotlinx.coroutines.Job? = null
 
     private var capturer: CameraVideoCapturer? = null
@@ -134,12 +141,18 @@ class CallEngine(
         this@CallEngine.polite = polite
         this@CallEngine.send = send
 
-        val config = PeerConnection.RTCConfiguration(parseIceServers(iceServers)).apply {
+        rtcConfig = PeerConnection.RTCConfiguration(parseIceServers(iceServers)).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
+        openPeerConnection()
+    }
 
-        val pc = checkNotNull(factory.createPeerConnection(config, observer)) {
+    // Adding the tracks raises negotiation-needed, which sends the offer.
+    private fun openPeerConnection() {
+        val config = rtcConfig ?: return
+        generation += 1
+        val pc = checkNotNull(factory.createPeerConnection(config, observerFor(generation))) {
             "Could not create a peer connection"
         }
         peerConnection = pc
@@ -147,6 +160,55 @@ class CallEngine(
 
         audioTrack?.let { pc.addTrack(it, listOf(STREAM_ID)) }
         mutableLocalVideo.value?.let { pc.addTrack(it, listOf(STREAM_ID)) }
+    }
+
+    /*
+     * Recovery follows the browser's rules exactly, or the two ends drift
+     * apart. The browser restarts ICE when a connection has been
+     * `disconnected` for 5 s, and throws a `failed` connection away, building
+     * a fresh one when the next signal arrives. Restarting ICE on a failed
+     * connection here would renegotiate that old session with the browser's
+     * brand-new connection, adding media sections on every failure; so a
+     * failed connection is rebuilt from scratch instead.
+     */
+    private fun onDisconnected(gen: Int) {
+        mutableConnection.value = MediaConnection.Reconnecting
+        disconnectJob?.cancel()
+        disconnectJob = scope.launch {
+            kotlinx.coroutines.delay(DISCONNECT_GRACE_MS)
+            val pc = peerConnection ?: return@launch
+            if (gen != generation || pc.connectionState() != PeerConnection.PeerConnectionState.DISCONNECTED) {
+                return@launch
+            }
+            if (restartAttempts < MAX_ICE_RESTARTS) {
+                restartAttempts += 1
+                Log.d(TAG, "restarting ICE (attempt $restartAttempts)")
+                pc.restartIce()
+            }
+        }
+    }
+
+    private suspend fun onFailed() {
+        disconnectJob?.cancel()
+        if (rebuildAttempts >= MAX_REBUILDS) {
+            mutableConnection.value = MediaConnection.Failed
+            return
+        }
+        rebuildAttempts += 1
+        Log.d(TAG, "connection failed; rebuilding (attempt $rebuildAttempts)")
+
+        negotiation.lock()
+        try {
+            peerConnection?.dispose()
+            peerConnection = null
+            pendingIce.clear()
+            ignoreOffer = false
+            mutableRemoteVideo.value = null
+            mutableConnection.value = MediaConnection.Reconnecting
+            if (!closed) openPeerConnection()
+        } finally {
+            negotiation.unlock()
+        }
     }
 
     /** Applies one opened signal from the peer. */
@@ -290,13 +352,15 @@ class CallEngine(
         }
     }
 
-    private val observer = object : PeerConnection.Observer {
+    private fun observerFor(gen: Int) = object : PeerConnection.Observer {
         override fun onRenegotiationNeeded() {
+            if (gen != generation) return
             Log.d(TAG, "negotiation needed")
             negotiate()
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (gen != generation) return
             Log.d(TAG, "local candidate ${candidate.sdp.substringAfter(" typ ").substringBefore(" ")} ${candidate.sdp.take(60)}")
             scope.launch {
                 send(CallSignal.Ice(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex))
@@ -304,6 +368,7 @@ class CallEngine(
         }
 
         override fun onTrack(transceiver: RtpTransceiver) {
+            if (gen != generation) return
             val track = transceiver.receiver.track()
             Log.d(TAG, "remote track ${track?.kind()} mid=${transceiver.mid}")
             if (track is VideoTrack) mutableRemoteVideo.value = track
@@ -312,24 +377,17 @@ class CallEngine(
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
             Log.d(TAG, "connection $newState")
             scope.launch {
+                if (gen != generation || closed) return@launch
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
+                        disconnectJob?.cancel()
                         restartAttempts = 0
+                        rebuildAttempts = 0
                         mutableConnection.value = MediaConnection.Connected
                         logStatsWhileConnected()
                     }
-                    PeerConnection.PeerConnectionState.DISCONNECTED ->
-                        mutableConnection.value = MediaConnection.Reconnecting
-                    PeerConnection.PeerConnectionState.FAILED -> {
-                        // Same budget as the browser: two ICE restarts, then give up.
-                        if (restartAttempts < MAX_ICE_RESTARTS) {
-                            restartAttempts += 1
-                            mutableConnection.value = MediaConnection.Reconnecting
-                            peerConnection?.restartIce()
-                        } else {
-                            mutableConnection.value = MediaConnection.Failed
-                        }
-                    }
+                    PeerConnection.PeerConnectionState.DISCONNECTED -> onDisconnected(gen)
+                    PeerConnection.PeerConnectionState.FAILED -> onFailed()
                     else -> Unit
                 }
             }
@@ -383,6 +441,8 @@ class CallEngine(
         private const val CAPTURE_HEIGHT = 720
         private const val CAPTURE_FPS = 30
         private const val MAX_ICE_RESTARTS = 2
+        private const val MAX_REBUILDS = 2
+        private const val DISCONNECT_GRACE_MS = 5_000L
         private const val STATS_SAMPLES = 10
         private const val STATS_INTERVAL_MS = 2_000L
 

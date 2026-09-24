@@ -27,8 +27,8 @@ android {
         applicationId = "org.veejr.simpleveej"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-alpha01"
+        versionCode = 2
+        versionName = "0.2.0"
         buildConfigField("String", "DEFAULT_INSTANCE_URL", "\"https://veejr.dyndns-server.com\"")
         buildConfigField("boolean", "ALLOW_HTTP", "false")
 

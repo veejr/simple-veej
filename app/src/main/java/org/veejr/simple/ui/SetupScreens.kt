@@ -120,7 +120,11 @@ fun UnlockScreen(busy: Boolean, error: String?, onUnlock: (CharArray) -> Unit, o
 }
 
 @Composable
-fun ChoosePersonScreen(friends: List<Recipient>, onChoose: (Recipient, String) -> Unit) {
+fun ChoosePersonScreen(
+    friends: List<Recipient>,
+    onCancel: (() -> Unit)? = null,
+    onChoose: (Recipient, String) -> Unit,
+) {
     var chosen by remember { mutableStateOf<Recipient?>(null) }
     var name by remember { mutableStateOf("") }
 
@@ -130,6 +134,9 @@ fun ChoosePersonScreen(friends: List<Recipient>, onChoose: (Recipient, String) -
             Spacer(Modifier.height(24.dp))
             Text("Who does this phone call?", fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("Pick the one person the big button will ring.", fontSize = 18.sp, color = Color(0xFF4A4F57))
+            if (onCancel != null) {
+                TextButton(onClick = onCancel) { Text("Keep the current person") }
+            }
             Spacer(Modifier.height(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(friends, key = { it.id }) { friend ->
@@ -169,10 +176,14 @@ fun SettingsScreen(
     pushReady: Boolean,
     onRegisterPush: () -> Unit,
     onAllowFullScreen: () -> Unit,
+    changingPerson: Boolean,
+    error: String?,
+    onChangePerson: () -> Unit,
     onBack: () -> Unit,
     onStartOver: () -> Unit,
 ) {
-    SetupFrame("Settings", "This phone calls $personName.", null) {
+    SetupFrame("Settings", "This phone calls $personName.", error) {
+        PrimaryButton("Change person", busy = changingPerson, enabled = true, onClick = onChangePerson)
         StatusRow("Rings when the app is closed", pushStatus)
         if (!pushReady) {
             PrimaryButton("Register now", busy = false, enabled = true, onClick = onRegisterPush)

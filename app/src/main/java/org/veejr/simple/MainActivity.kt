@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.em
 import androidx.core.content.ContextCompat
 import org.veejr.simple.ui.CallingScreen
 import org.veejr.simple.ui.ChoosePersonScreen
@@ -48,7 +49,9 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
-            MaterialTheme {
+            // Text here runs from 16 to 44 sp; a line height fixed at the
+            // theme's 24 sp made wrapped titles overlap. Scale it instead.
+            MaterialTheme(typography = scaledLineHeights()) {
                 Root()
             }
         }
@@ -95,7 +98,10 @@ class MainActivity : ComponentActivity() {
                 onUnlock = { setup.unlock(current.account, it) },
                 onStartOver = setup::startOver,
             )
-            is SetupStep.ChoosePerson -> ChoosePersonScreen(current.friends) { friend, name ->
+            is SetupStep.ChoosePerson -> ChoosePersonScreen(
+                friends = current.friends,
+                onCancel = if (current.changing) setup::cancelChangePerson else null,
+            ) { friend, name ->
                 setup.choose(friend, name)
                 withPermissions {}
             }
@@ -113,6 +119,8 @@ class MainActivity : ComponentActivity() {
         val muted by calls.muted.collectAsState()
         val engine by calls.engine.collectAsState()
         var showSettings by remember { mutableStateOf(false) }
+        val setupBusy by setup.busy.collectAsState()
+        val setupError by setup.error.collectAsState()
         val resumes by resumeCount.collectAsState()
         val fullScreenAllowed = remember(resumes) { RingReadiness.fullScreenAllowed(this) }
         val push by app.pushStatus.collectAsState()
@@ -151,6 +159,9 @@ class MainActivity : ComponentActivity() {
                     pushReady = push is PushStatus.Ready,
                     onRegisterPush = app::refreshPushToken,
                     onAllowFullScreen = ::openFullScreenSettings,
+                    changingPerson = setupBusy,
+                    error = setupError,
+                    onChangePerson = setup::changePerson,
                     onBack = { showSettings = false },
                     onStartOver = {
                         showSettings = false
@@ -209,4 +220,15 @@ class MainActivity : ComponentActivity() {
         private val MEDIA_PERMISSIONS = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
         private val NO_VIDEO = kotlinx.coroutines.flow.MutableStateFlow<org.webrtc.VideoTrack?>(null)
     }
+}
+
+private fun scaledLineHeights(): androidx.compose.material3.Typography {
+    val base = androidx.compose.material3.Typography()
+    fun androidx.compose.ui.text.TextStyle.scaled() = copy(lineHeight = 1.25.em)
+    return base.copy(
+        bodyLarge = base.bodyLarge.scaled(),
+        bodyMedium = base.bodyMedium.scaled(),
+        bodySmall = base.bodySmall.scaled(),
+        labelLarge = base.labelLarge.scaled(),
+    )
 }

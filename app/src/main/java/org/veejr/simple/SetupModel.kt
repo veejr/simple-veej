@@ -22,7 +22,8 @@ import org.veejr.core.network.WrappedKey
 sealed interface SetupStep {
     data object SignIn : SetupStep
     data class Unlock(val account: Account) : SetupStep
-    data class ChoosePerson(val friends: List<Recipient>) : SetupStep
+    /** [changing] is true when an already set-up phone is picking a new person. */
+    data class ChoosePerson(val friends: List<Recipient>, val changing: Boolean = false) : SetupStep
     data object Done : SetupStep
 }
 
@@ -108,6 +109,18 @@ class SetupModel(application: Application) : AndroidViewModel(application) {
         app.forget()
         mutableError.value = "This phone was signed out. Please set it up again."
         mutableStep.value = SetupStep.SignIn
+    }
+
+    /** Picks a different person without signing in or unlocking again. */
+    fun changePerson() = work {
+        val friends = app.sessions()!!.contacts().sortedBy { it.handle.lowercase() }
+        if (friends.isEmpty()) throw SetupError("You have no veejr friends to choose from.")
+        mutableStep.value = SetupStep.ChoosePerson(friends, changing = true)
+    }
+
+    fun cancelChangePerson() {
+        mutableError.value = null
+        mutableStep.value = SetupStep.Done
     }
 
     fun startOver() = viewModelScope.launch {
