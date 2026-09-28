@@ -24,6 +24,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        // WebRTC's native library is ~11 MB per processor type. Phones are
+        // ARM; the x86 builds only serve emulators and Chromebooks and would
+        // add ~25 MB to every download.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
         applicationId = "org.veejr.simpleveej"
         minSdk = 26
         targetSdk = 35
@@ -76,6 +82,10 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Compress native libraries in the APK: roughly halves the download.
+        // Android extracts them once at install instead of mapping them
+        // straight from the APK.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
