@@ -52,9 +52,11 @@ Peer public keys come from server-provided account/call data; this app does not
 provide an independent fingerprint-verification UI. Do not treat it as protection
 against malicious substitution of those public keys by a trusted server.
 
-FCM receives call identifiers and caller/expiry metadata, not SDP, identity
+FCM receives call identifiers and caller/expiry metadata, plus the sender handle
+and kind of new messages (never message text), not SDP, identity
 secrets, passphrases, or media. The receiving phone checks expiry, then uses the
-authenticated server channel to answer. Notification text can expose caller
+authenticated server channel to answer. Message text is decrypted on the phone only and shown in the app, never in a
+notification. Notification text can expose caller or sender
 information on the lock screen according to the phone's settings.
 
 ## Diagnostics and tests

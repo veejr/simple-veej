@@ -2,7 +2,8 @@
 
 simple-veej is a native Kotlin/Jetpack Compose Android video phone, forked from
 veejr-android. It calls one selected friend with a large home-screen button.
-It has no inbox, attachment viewer, message composer, or Room database.
+It has no inbox, attachment viewer, or Room database. A small message
+feature lets the helper text the same friend (see Messaging).
 
 ## Modules and ownership
 
@@ -78,12 +79,25 @@ before requesting an ICE restart; failed connections are rebuilt, with bounded
 retry counts. Generation checks discard callbacks from replaced connections.
 Ending a call disposes media resources and destroys the signal sealer's secret.
 
+## Messaging
+
+The message icon on the home button reads recent history with
+`MessageSender.recent()`: it fetches the first page of `message` envelopes,
+opens each with the identity key and the envelope's `peer_key`, and keeps only
+the conversation with the chosen friend. If the friend sent something within
+the last 30 minutes, a full-screen `ChatScreen` opens and polls history every
+5 seconds while visible; otherwise a small dialog shows the last three messages
+above a text box. Sending uses the v1 `message` payload, one envelope per
+recipient. Text only: no attachments, edits, or pagination.
+
 ## Incoming calls and Android lifecycle
 
 `SimpleVeejApp` owns the application coroutine scope and call controller.
 `CallService` supplies the ongoing camera/microphone foreground notification.
 `PushService` receives FCM call-ring/cancellation metadata and hands it to the
-controller on the main thread. Push is a wake-up hint; answering still requires
+controller on the main thread. A content-free `new_message` push from the chosen
+friend raises a notification (`MessageNotifier`) that opens the chat. Messages
+that are not auto-accepted by the account stay pending and are not shown. Push is a wake-up hint; answering still requires
 an authenticated socket and server acceptance.
 
 FCM requires this app's `google-services.json` from the server's Firebase

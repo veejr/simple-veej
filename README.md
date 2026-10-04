@@ -23,6 +23,9 @@ usually by whoever hands over the phone.
 - **Ringing while closed:** the server sends a content-free, high-priority FCM
   data message. The app shows a full-screen call notification and answers
   over the socket.
+- **Messages:** the small icon on the button opens a quick box with the last
+  few messages, or a full chat when the friend wrote within 30 minutes. New
+  messages raise a notification that opens the chat.
 - **Settings:** long-press the big button.
 
 ## Build
