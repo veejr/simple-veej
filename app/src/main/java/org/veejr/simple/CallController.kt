@@ -3,6 +3,7 @@ package org.veejr.simple
 import android.content.Context
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,7 @@ class CallController(
     private var sealer: SignalSealer? = null
     private var clearEndedJob: Job? = null
     private var timeoutJob: Job? = null
+    private val socketObservers = mutableListOf<Job>()
 
     val rtcEglContext: EglBase.Context get() = eglBase.eglBaseContext
 
@@ -83,7 +85,17 @@ class CallController(
 
         mutableSignedOut.value = false
         socket = PhoenixSocket(scope, PhoenixSocket.httpClient(), TOPIC) { refreshFirst ->
-            if (refreshFirst) runCatching { sessions()?.currentAccount() }
+            if (refreshFirst) {
+                try {
+                    sessions()?.currentAccount()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    // Retry temporary network errors. Only a rejected refresh
+                    // that cleared the token store means the user signed out.
+                    if (store.load() != null) throw error
+                }
+            }
             val tokens = store.load()
             if (tokens == null) {
                 // The refresh token was rejected (device sessions last at most
@@ -93,13 +105,17 @@ class CallController(
             }
             tokens?.let { PhoenixFrames.socketUrl(apiBase, it.accessToken) }
         }.also { phoenix ->
+            socketObservers.forEach { it.cancel() }
+            socketObservers.clear()
             phoenix.start()
-            scope.launch { phoenix.events.collect(::onServerEvent) }
-            scope.launch { phoenix.joined.filterNotNull().collect { reattach(phoenix) } }
+            socketObservers += scope.launch { phoenix.events.collect(::onServerEvent) }
+            socketObservers += scope.launch { phoenix.joined.filterNotNull().collect { reattach(phoenix) } }
         }
     }
 
     fun stop() {
+        socketObservers.forEach { it.cancel() }
+        socketObservers.clear()
         socket?.stop()
         socket = null
     }

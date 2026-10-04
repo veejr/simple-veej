@@ -1,92 +1,111 @@
-# Android architecture
+# simple-veej architecture
 
-The veejr Android app is a native client for an existing veejr Phoenix
-instance. Phoenix remains authoritative for accounts, authorization,
-ciphertext storage, consent, federation, and delivery. The Android client owns
-passphrase handling, private keys, encryption, decryption, and plaintext.
+simple-veej is a native Kotlin/Jetpack Compose Android video phone, forked from
+veejr-android. It calls one selected friend with a large home-screen button.
+It has no inbox, attachment viewer, message composer, or Room database.
 
-## Initial modules
+## Modules and ownership
 
-- `app`: Compose application shell and navigation host.
-- `core:model`: protocol types shared across features.
-- `core:network`: `/api/v1` transport boundary and DTO mapping.
-- `core:crypto`: client-only cryptography and Android Keystore integration.
+- `app`: setup and Compose screens, Android Keystore storage, push and call
+  notifications, Phoenix signaling, and WebRTC media.
+- `core:model`: protocol types shared with veejr-android.
+- `core:network`: API v1 DTOs and OkHttp transport, plus `AuthSessionManager`.
+- `core:crypto`: framework-independent TweetNaCl cryptography and fixtures.
 
-Feature modules, Room persistence, synchronization, and dependency injection
-will be added as the first encrypted-messaging vertical slice is implemented.
-The application shell currently owns the instance-selection and authentication
-flow while those boundaries remain small.
+Dependency direction is `app -> core:network/core:crypto -> core:model`.
+Some shared APIs support messaging; their presence does not mean this app has
+messaging features. Core changes should also be considered for veejr-android.
 
-## Dependency direction
+## Setup and device storage
 
-```text
-app -> core:network -> core:model
-app -> core:crypto  -> core:model
-```
+`SetupModel` signs in to the selected instance, unwraps the existing account
+identity using the passphrase, verifies its public key, and lets the helper
+choose a friend and button label. An account without keys must first set them
+up using veejr. Settings is opened by long-pressing the home-screen button;
+Change person returns to the friend picker without another unlock.
 
-Network code must not depend on crypto implementation types that contain raw
-secrets. Decrypted content is memory-only by default and is not persisted in
-Room, saved UI state, analytics, logs, or crash reports.
+`SimpleStore` implements `SessionTokenStore`. It stores the identity secret
+and session tokens as separate AES-256-GCM records in SharedPreferences. The
+wrapping key is non-exportable and belongs to Android Keystore. The endpoint,
+user ID, selected person's metadata, and push-registration timestamp are stored
+as ordinary preferences. The passphrase is not stored.
 
-`core:crypto` uses the pure-Java TweetNaCl port for protocol-v1 X25519,
-XSalsa20, and Poly1305 compatibility. Keeping this module independent of the
-Android framework makes every canonical vector executable as a fast JVM test.
-Android Keystore integration will wrap device-local material above this layer;
-it does not replace the portable protocol representation.
+An already configured app restores its setup and starts calling services on
+process startup. It does not revalidate the account or ask for a passphrase on
+every launch. `AuthSessionManager` refreshes tokens after a REST 401, serializes
+refresh rotation, and clears tokens when refresh is rejected. The calling UI
+returns to setup when the token store is empty. A temporary network failure
+must not be interpreted as sign-out.
 
-`core:network` uses suspendable OkHttp calls and Kotlin serialization for the
-versioned JSON contract. Its client does not follow redirects, preventing an
-authenticated request from silently crossing instance origins. Access and
-refresh tokens are added only to the endpoints that require them, and
-token-bearing objects redact their string representation.
+## Signaling and recovery
 
-`AuthSessionManager` is the session boundary above that transport. It persists
-successful login tokens through `SessionTokenStore`, serializes refresh-token
-rotation, retries an authenticated operation once after a 401, and always
-clears local state during logout. The token-store interface deliberately has no
-storage implementation yet; an Android Keystore-backed adapter belongs at the
-application boundary rather than in the framework-independent network module.
+`CallController` owns one `PhoenixSocket` on `calls:v1` at
+`/api/v1/socket/websocket`. The access token is sent in the WSS upgrade URL.
+The server must support the `calls: 1` extension. The channel handles starting,
+accepting, declining and ending calls, and relays sealed signaling frames.
 
-The application starts by restoring the selected instance and encrypted token
-record. A valid session is verified through `/api/v1/me`; otherwise the app
-lands on sign-in with an actionable error. A new instance must advertise API
-v1 capabilities before the app stores it or presents the credential form.
+`PhoenixSocket` uses Phoenix Channels V2 array frames. Every connection joins
+again, with a ten-second join deadline. Disconnects and failed sends complete
+pending pushes with null, allowing the controller to show an error rather than
+leaving a cancelled call action stuck. Pushes also have their own deadlines.
+The reconnect delay grows from one second after an unsuccessful attempt to a
+15-second cap; a previously joined connection retries after 500 milliseconds.
+HTTP 401/403 upgrade failures request account/token refresh before retrying.
+Transient URL/token lookup errors are retried without discarding credentials.
 
-After authentication, accounts without identity keys enter setup; configured
-accounts enter unlock. PBKDF2 and NaCl work runs off the UI thread. The raw
-X25519 secret exists only in ViewModel-owned memory for the active process and
-is zeroed on logout, instance change, failed setup, and ViewModel teardown.
+A Phoenix heartbeat is sent every 30 seconds; an unacknowledged heartbeat causes
+reconnection at the next interval. OkHttp also sends transport pings every
+20 seconds. Timers belong to the connection lifecycle, stopped sockets are
+cancelled, and callbacks from older connections cannot change current state.
+OkHttp callbacks are marshalled onto the controller's coroutine scope.
 
-The first inbox slice loads consent metadata only. Accepting a notification
-releases its encrypted envelope, which Android authenticates and decrypts in
-memory using the unlocked identity; declining removes the pending item without
-fetching content. Plaintext messages remain in process memory only.
+After a rejoin, an outgoing or active call is reaccepted so server presence and
+signaling move to the new channel. The server's reconnect grace still applies:
+a sufficiently long outage ends the call. Reconnection is not a guarantee that
+an arbitrarily interrupted call can resume.
 
-Attachment descriptors are recovered from that encrypted payload. Android
-downloads the referenced opaque ciphertext through its unguessable capability
-URL only after a user requests it, enforces the server's 25 MB encrypted-blob
-limit, and authenticates it locally with the descriptor's secretbox key and
-nonce. Decrypted bytes remain in ViewModel memory. Opening a non-image file
-creates an app-private cache copy exposed to the selected Android viewer through
-a temporary, read-only `FileProvider` URI; those cache files are removed on app
-startup, logout, and instance change.
+## Media
 
-The conversation composer uses Android's document picker and system audio
-recorder. Selected bytes are read off the UI thread, limited to ten files and
-the advertised blob-size boundary, secretboxed with independent random keys,
-and uploaded through the bearer-authenticated, idempotent `/api/v1/blobs`
-endpoint. Only the returned capability ID and encrypted descriptor are placed
-in the recipient envelopes. Source byte arrays and temporary secretbox material
-are zeroed after the send attempt.
+`CallEngine` captures camera/microphone media and maintains one WebRTC peer
+connection. SDP offers/answers, ICE candidates and media-state messages are
+sealed with the account identity and the peer key using `SignalSealer`.
+The server supplies peer metadata and ICE servers; WebRTC media flows directly
+or through TURN using its transport encryption.
 
-The text composer resolves an accepted friend together with the sender's
-self-copy, serializes one protocol-v1 payload, and seals it independently to
-each public key. A fresh 128-bit idempotency key accompanies every batch so a
-network retry cannot create duplicate messages.
+Negotiation runs under a mutex on a dedicated executor. The polite participant
+yields on an offer collision. A disconnected connection waits five seconds
+before requesting an ICE restart; failed connections are rebuilt, with bounded
+retry counts. Generation checks discard callbacks from replaced connections.
+Ending a call disposes media resources and destroys the signal sealer's secret.
 
-## Protocol authority
+## Incoming calls and Android lifecycle
 
-The canonical client protocol is maintained in
-[`veejr-server/docs/CLIENT_PROTOCOL_V1.md`](https://github.com/veejr/veejr-server/blob/main/docs/CLIENT_PROTOCOL_V1.md).
-This repository will contain machine-readable copies of published test vectors
-under `protocol-fixtures/`.
+`SimpleVeejApp` owns the application coroutine scope and call controller.
+`CallService` supplies the ongoing camera/microphone foreground notification.
+`PushService` receives FCM call-ring/cancellation metadata and hands it to the
+controller on the main thread. Push is a wake-up hint; answering still requires
+an authenticated socket and server acceptance.
+
+FCM requires this app's `google-services.json` from the server's Firebase
+project. Without it, the app can ring while its socket is running, but cannot
+reliably wake when closed. Notification permission, the call notification
+channel, Android full-screen intent access, and device battery policies also
+matter. A force-stopped app must be reopened. Expired rings are ignored and
+unanswered notifications expire locally.
+
+## Verification
+
+Run `./gradlew lint test assembleDebug` (or `gradlew.bat` on Windows).
+`PhoenixSocketTest` covers disconnect/rejoin, join and push deadlines,
+credential lookup failure, 401/403 refresh, heartbeat acknowledgement, failed
+sends, channel errors, and stop/restart cleanup using virtual time and a fake
+transport. `ProtocolTest` covers signal shapes, sealing and role selection;
+`core:*` tests cover crypto fixtures, endpoint validation and REST sessions.
+
+These JVM tests do not validate real camera/audio, Android Keystore, FCM wake-up,
+NAT traversal, or browser/phone WebRTC interoperability. Use the device checklist
+in [CONNECTIONS.md](CONNECTIONS.md) before distributing a release.
+
+The wire authority remains
+[CLIENT_PROTOCOL_V1.md](https://github.com/veejr/veejr-server/blob/main/docs/CLIENT_PROTOCOL_V1.md),
+particularly section 26 for calls.

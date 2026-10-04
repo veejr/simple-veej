@@ -27,17 +27,22 @@ usually by whoever hands over the phone.
 
 ## Build
 
-JDK 17+ and Android SDK 35. On Apple Silicon without Rosetta,
+Use the checked-in Gradle wrapper and Android SDK 35. The daemon configuration
+requests JetBrains JDK 21; the Kotlin/Java toolchain targets JDK 17. Gradle can
+provision these toolchains, so the first build needs network access.
+On Apple Silicon without Rosetta,
 point Gradle at Android Studio's bundled arm64 runtime:
 
 ```sh
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew lint test assembleDebug
 ```
 
 The debug build defaults to `http://127.0.0.1:4000`; run
 `adb reverse tcp:4000 tcp:4000` so the phone reaches Phoenix on the development machine.
 Release builds default to the production instance and require HTTPS.
+Use the actual instance URL (`https://veejr.dyndns-server.com`), not the
+`https://veejr.com` redirect: the native client intentionally refuses redirects.
 
 ### Push (optional)
 
@@ -67,3 +72,15 @@ git merge upstream/main   # resolve: keep this repo's app/, take upstream core/
 ```
 
 Fixes to `core/` that are made here should be sent upstream as well.
+
+## Documentation and connection checks
+
+- [Architecture](docs/ARCHITECTURE.md): setup, encrypted device storage,
+  signaling recovery, media, and incoming calls.
+- [Security model](docs/SECURITY.md): remembered identity, peer trust and logging.
+- [Connection troubleshooting](docs/CONNECTIONS.md): distinguish sign-in,
+  signaling, media and background-ring failures, plus a real-device checklist.
+
+JVM socket tests simulate outages, stalled joins, expired authentication and
+stop/restart cleanup. They do not replace phone-to-browser call tests on Wi-Fi
+and mobile data or checks of Firebase and Android notification permissions.
