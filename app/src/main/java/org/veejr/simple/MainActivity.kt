@@ -163,26 +163,42 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Refreshes the cached conversation without blocking the UI.
+        val refreshRecent: () -> Unit = {
+            lifecycleScope.launch {
+                runCatching { messages.recent() }.onSuccess { recent = it }
+            }
+        }
+        // Keep the conversation and recipient keys warm so tapping Message needs no network wait.
+        LaunchedEffect(resumes) {
+            runCatching { messages.prewarm() }
+            refreshRecent()
+        }
+
         val openMessages: () -> Unit = {
             sentNote = null
             MessageNotifier.cancel(this)
-            lifecycleScope.launch {
-                recent = runCatching { messages.recent() }.getOrDefault(emptyList())
-                val cutoff = java.time.Instant.now().minus(CHAT_WINDOW)
-                if (recent.any { !it.mine && it.at.isAfter(cutoff) }) {
-                    chatError = null
-                    showChat = true
-                } else {
-                    showMessage = true
-                }
+            // Decide from what is already loaded, open at once, refresh behind it.
+            val cutoff = java.time.Instant.now().minus(CHAT_WINDOW)
+            if (recent.any { !it.mine && it.at.isAfter(cutoff) }) {
+                chatError = null
+                showChat = true
+            } else {
+                showMessage = true
             }
+            refreshRecent()
         }
         // A tapped new-message notification opens the chat once the call UI is idle.
         val chatRequests by openChatRequests.collectAsState()
         LaunchedEffect(chatRequests, state) {
             if (chatRequests > 0 && (state is CallState.Idle || state is CallState.Ended)) {
                 openChatRequests.value = 0
-                openMessages()
+                // The tap came from a new-message notification: go straight to the chat.
+                sentNote = null
+                MessageNotifier.cancel(this@MainActivity)
+                chatError = null
+                showChat = true
+                refreshRecent()
             }
         }
 

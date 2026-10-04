@@ -49,6 +49,13 @@ class MessageSender(
         return manager.resolveRecipients("contact", personId).also { cachedRecipients = personId to it }
     }
 
+    /** Resolves recipients ahead of the first send so it needs one request. */
+    suspend fun prewarm() = withContext(Dispatchers.IO) {
+        val person = store.myPerson ?: return@withContext
+        val manager = sessions() ?: return@withContext
+        recipientsFor(manager, person.id)
+    }
+
     suspend fun send(text: String) = withContext(Dispatchers.IO) {
         sendNow(text)
     }
