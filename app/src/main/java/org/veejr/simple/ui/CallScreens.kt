@@ -26,6 +26,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -353,6 +359,7 @@ fun MessageDialog(
     onDismiss: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
+    var showEmoji by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Message $personName") },
@@ -366,6 +373,8 @@ fun MessageDialog(
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                EmojiToggle(showEmoji) { showEmoji = !showEmoji }
+                if (showEmoji) EmojiPanel(onPick = { text += it }, onClose = { showEmoji = false }, height = 180.dp)
             }
         },
         confirmButton = {
@@ -386,6 +395,8 @@ fun ChatScreen(
     onBack: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
+    var showEmoji by remember { mutableStateOf(false) }
+    BackHandler(enabled = showEmoji) { showEmoji = false }
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
@@ -402,7 +413,10 @@ fun ChatScreen(
         }
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { showEmoji = false },
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -428,6 +442,7 @@ fun ChatScreen(
                 placeholder = { Text("Message") },
                 modifier = Modifier.weight(1f),
             )
+            EmojiToggle(showEmoji) { showEmoji = !showEmoji }
             IconButton(
                 onClick = { onSend(text); text = "" },
                 enabled = text.isNotBlank(),
@@ -435,6 +450,61 @@ fun ChatScreen(
                     .background(if (text.isNotBlank()) CallGreen else Color.LightGray),
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = Color.White)
+            }
+        }
+        if (showEmoji) EmojiPanel(onPick = { text += it }, onClose = { showEmoji = false }, height = 240.dp)
+    }
+}
+
+private val EmojiChoices = (
+    "😀😃😄😁😆😅😂🤣😊😇🙂😉😍🥰😘😗😋😜🤪😎🤓🥳😏😢😭😤😡🥺😱😴🤔🤗🤭🙄😬😮😷🤒🥶🥵" +
+        "👍👎👏🙌🙏💪👋🤝✌️🤞👌🤟👀❤️🧡💛💚💙💜🖤💔💕💖🔥✨🎉🎂🎁🌹🌞🌈⭐" +
+        "🐶🐱🐭🐻🐼🐸🐵🐔🐧🦋🌸🌻🍎🍕🍔🍟🍦🍪☕🍷🏠🚗✈️📞📷🎵⚽"
+    ).let { all ->
+    val seg = java.text.BreakIterator.getCharacterInstance()
+    seg.setText(all)
+    buildList {
+        var start = seg.first()
+        var end = seg.next()
+        while (end != java.text.BreakIterator.DONE) {
+            add(all.substring(start, end))
+            start = end
+            end = seg.next()
+        }
+    }
+}
+
+@Composable
+private fun EmojiToggle(open: Boolean, onToggle: () -> Unit) {
+    IconButton(onClick = onToggle) {
+        Icon(
+            if (open) Icons.Filled.Close else Icons.Filled.EmojiEmotions,
+            if (open) "Close emojis" else "Emojis",
+            tint = Ink,
+            modifier = Modifier.size(32.dp),
+        )
+    }
+}
+
+/** A tappable grid of emojis. Closes via its X, the toggle button, or the system back gesture. */
+@Composable
+private fun EmojiPanel(onPick: (String) -> Unit, onClose: () -> Unit, height: androidx.compose.ui.unit.Dp) {
+    BackHandler(onBack = onClose)
+    Column(Modifier.fillMaxWidth().background(Color(0xFFF2F2F2))) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Emojis", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close emojis", tint = Ink) }
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(52.dp),
+            modifier = Modifier.fillMaxWidth().height(height),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            gridItems(EmojiChoices) { e ->
+                Box(
+                    Modifier.size(52.dp).clickable { onPick(e) }.semantics { contentDescription = "Emoji $e" },
+                    contentAlignment = Alignment.Center,
+                ) { Text(e, fontSize = 28.sp) }
             }
         }
     }
