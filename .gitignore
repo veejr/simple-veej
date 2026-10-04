@@ -17,3 +17,4 @@ app/release/
 google-services.json
 *.apk
 .agent-office/
+.claude/
