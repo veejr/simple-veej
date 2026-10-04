@@ -26,6 +26,7 @@ import org.veejr.simple.ui.CallingScreen
 import org.veejr.simple.ui.ChoosePersonScreen
 import org.veejr.simple.ui.HomeScreen
 import org.veejr.simple.ui.InCallScreen
+import org.veejr.simple.ui.ChatScreen
 import org.veejr.simple.ui.IncomingScreen
 import org.veejr.simple.ui.MessageDialog
 import org.veejr.simple.ui.SettingsScreen
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // Permissions can change in Settings while we are away; re-read on return.
+    private val openChatRequests = kotlinx.coroutines.flow.MutableStateFlow(0)
     private val resumeCount = kotlinx.coroutines.flow.MutableStateFlow(0)
 
     override fun onResume() {
@@ -137,8 +139,34 @@ class MainActivity : ComponentActivity() {
         }
         val personName = app.store.myPerson?.name ?: "my person"
         var showMessage by remember { mutableStateOf(false) }
+        var showChat by remember { mutableStateOf(false) }
+        var recent by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
+        var chatError by remember { mutableStateOf<String?>(null) }
         var sending by remember { mutableStateOf(false) }
         var sentNote by remember { mutableStateOf<String?>(null) }
+
+        val openMessages: () -> Unit = {
+            sentNote = null
+            MessageNotifier.cancel(this)
+            lifecycleScope.launch {
+                recent = runCatching { messages.recent() }.getOrDefault(emptyList())
+                val cutoff = java.time.Instant.now().minus(CHAT_WINDOW)
+                if (recent.any { !it.mine && it.at.isAfter(cutoff) }) {
+                    chatError = null
+                    showChat = true
+                } else {
+                    showMessage = true
+                }
+            }
+        }
+        // A tapped new-message notification opens the chat once the call UI is idle.
+        val chatRequests by openChatRequests.collectAsState()
+        LaunchedEffect(chatRequests, state) {
+            if (chatRequests > 0 && (state is CallState.Idle || state is CallState.Ended)) {
+                openChatRequests.value = 0
+                openMessages()
+            }
+        }
 
         when (val current = state) {
             is CallState.Incoming -> IncomingScreen(
@@ -179,7 +207,7 @@ class MainActivity : ComponentActivity() {
                 HomeScreen(
                     personName = personName,
                     banner = sentNote ?: (current as? CallState.Ended)?.message,
-                    onMessage = { sentNote = null; showMessage = true },
+                    onMessage = openMessages,
                     fullScreenAllowed = fullScreenAllowed,
                     onAllowFullScreen = ::openFullScreenSettings,
                     onCall = { withPermissions { calls.callMyPerson() } },
@@ -187,6 +215,7 @@ class MainActivity : ComponentActivity() {
                 )
                 if (showMessage) MessageDialog(
                     personName = personName,
+                    recent = recent,
                     sending = sending,
                     onDismiss = { showMessage = false },
                     onSend = { text ->
@@ -202,11 +231,42 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 )
+                // Keeps an open chat current; the effect is cancelled when it closes.
+                LaunchedEffect(showChat) {
+                    while (showChat) {
+                        kotlinx.coroutines.delay(CHAT_POLL_MILLIS)
+                        if (!sending) {
+                            runCatching { messages.recent() }.onSuccess { recent = it }
+                        }
+                    }
+                }
+                if (showChat) ChatScreen(
+                    personName = personName,
+                    messages = recent,
+                    sending = sending,
+                    error = chatError,
+                    onBack = { showChat = false },
+                    onSend = { text ->
+                        sending = true
+                        chatError = null
+                        lifecycleScope.launch {
+                            runCatching { messages.send(text) }
+                                .onFailure { chatError = it.message ?: "Message not sent." }
+                            recent = runCatching { messages.recent() }.getOrDefault(recent)
+                            sending = false
+                        }
+                    },
+                )
             }
         }
     }
 
     private fun handleRingIntent(intent: Intent?) {
+        if (intent?.action == ACTION_OPEN_CHAT) {
+            openChatRequests.value += 1
+            intent.action = null
+            return
+        }
         val callId = intent?.getStringExtra(EXTRA_CALL_ID) ?: return
         when (intent.action) {
             ACTION_ANSWER -> withPermissions { app.calls.answer(callId) }
@@ -239,8 +299,13 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_ANSWER = "org.veejr.simple.ANSWER"
+        const val ACTION_OPEN_CHAT = "org.veejr.simple.OPEN_CHAT"
         const val ACTION_SHOW_RING = "org.veejr.simple.SHOW_RING"
         const val EXTRA_CALL_ID = "call_id"
+
+        /** An incoming message this recent opens the full chat instead of the quick box. */
+        private const val CHAT_POLL_MILLIS = 5_000L
+        private val CHAT_WINDOW = java.time.Duration.ofMinutes(30)
 
         private val MEDIA_PERMISSIONS = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
         private val NO_VIDEO = kotlinx.coroutines.flow.MutableStateFlow<org.webrtc.VideoTrack?>(null)

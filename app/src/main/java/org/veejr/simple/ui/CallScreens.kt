@@ -55,6 +55,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.LaunchedEffect
+import org.veejr.simple.ChatMessage
 import org.veejr.simple.CallEngine
 import org.veejr.simple.MediaConnection
 import org.webrtc.EglBase
@@ -335,20 +346,29 @@ private fun Modifier.combinedClickableNoIndication(
 ) = combinedClickable(interactionSource = interaction, indication = null, onClick = onClick)
 
 @Composable
-fun MessageDialog(personName: String, sending: Boolean, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+fun MessageDialog(
+    personName: String,
+    recent: List<ChatMessage>,
+    sending: Boolean,
+    onSend: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { if (!sending) onDismiss() },
         title = { Text("Message $personName") },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                enabled = !sending,
-                minLines = 2,
-                maxLines = 5,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                recent.takeLast(3).forEach { Bubble(it, Modifier.fillMaxWidth()) }
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    enabled = !sending,
+                    minLines = 2,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         },
         confirmButton = {
             TextButton(onClick = { onSend(text) }, enabled = !sending && text.isNotBlank()) {
@@ -357,4 +377,82 @@ fun MessageDialog(personName: String, sending: Boolean, onSend: (String) -> Unit
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("Cancel") } },
     )
+}
+
+/** Full-screen conversation: bubbles on top, a text box and send button below. */
+@Composable
+fun ChatScreen(
+    personName: String,
+    messages: List<ChatMessage>,
+    sending: Boolean,
+    error: String?,
+    onSend: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
+    Column(Modifier.fillMaxSize().background(Color.White).systemBarsPadding().imePadding()) {
+        Row(
+            Modifier.fillMaxWidth().background(Ink).padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+            }
+            Text(personName, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(messages, key = { it.id }) { Bubble(it, Modifier.fillMaxWidth()) }
+        }
+        if (error != null) {
+            Text(error, color = Color(0xFFB00020), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp))
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                enabled = !sending,
+                maxLines = 4,
+                placeholder = { Text("Message") },
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { onSend(text); text = "" },
+                enabled = !sending && text.isNotBlank(),
+                modifier = Modifier.size(56.dp).clip(CircleShape)
+                    .background(if (!sending && text.isNotBlank()) CallGreen else Color.LightGray),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Bubble(message: ChatMessage, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = if (message.mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Text(
+            message.text,
+            color = if (message.mine) Color.White else Color.Black,
+            fontSize = 20.sp,
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .wrapContentWidth(if (message.mine) Alignment.End else Alignment.Start)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (message.mine) CallGreen else Color(0xFFE6E6E6))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
 }
