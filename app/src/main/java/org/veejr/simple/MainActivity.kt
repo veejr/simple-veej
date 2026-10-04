@@ -20,11 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.em
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import org.veejr.simple.ui.CallingScreen
 import org.veejr.simple.ui.ChoosePersonScreen
 import org.veejr.simple.ui.HomeScreen
 import org.veejr.simple.ui.InCallScreen
 import org.veejr.simple.ui.IncomingScreen
+import org.veejr.simple.ui.MessageDialog
 import org.veejr.simple.ui.SettingsScreen
 import org.veejr.simple.ui.SignInScreen
 import org.veejr.simple.ui.UnlockScreen
@@ -32,6 +35,7 @@ import org.veejr.simple.ui.UnlockScreen
 class MainActivity : ComponentActivity() {
     private val app by lazy { SimpleVeejApp.from(this) }
     private val setup: SetupModel by viewModels()
+    private val messages by lazy { MessageSender(app.store, app::sessions) }
 
     // What to do once camera and microphone are granted.
     private var afterPermissions: (() -> Unit)? = null
@@ -132,6 +136,9 @@ class MainActivity : ComponentActivity() {
             is PushStatus.Failed -> "Not working: ${status.reason}"
         }
         val personName = app.store.myPerson?.name ?: "my person"
+        var showMessage by remember { mutableStateOf(false) }
+        var sending by remember { mutableStateOf(false) }
+        var sentNote by remember { mutableStateOf<String?>(null) }
 
         when (val current = state) {
             is CallState.Incoming -> IncomingScreen(
@@ -171,11 +178,29 @@ class MainActivity : ComponentActivity() {
             } else {
                 HomeScreen(
                     personName = personName,
-                    banner = (current as? CallState.Ended)?.message,
+                    banner = sentNote ?: (current as? CallState.Ended)?.message,
+                    onMessage = { sentNote = null; showMessage = true },
                     fullScreenAllowed = fullScreenAllowed,
                     onAllowFullScreen = ::openFullScreenSettings,
                     onCall = { withPermissions { calls.callMyPerson() } },
                     onLongPressSettings = { showSettings = true },
+                )
+                if (showMessage) MessageDialog(
+                    personName = personName,
+                    sending = sending,
+                    onDismiss = { showMessage = false },
+                    onSend = { text ->
+                        sending = true
+                        lifecycleScope.launch {
+                            val result = runCatching { messages.send(text) }
+                            sending = false
+                            showMessage = false
+                            sentNote = result.fold(
+                                onSuccess = { "Message sent." },
+                                onFailure = { it.message ?: "Message not sent." },
+                            )
+                        }
+                    },
                 )
             }
         }

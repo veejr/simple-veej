@@ -31,6 +31,13 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material.icons.filled.Message
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -69,6 +76,7 @@ fun HomeScreen(
     fullScreenAllowed: Boolean,
     onAllowFullScreen: () -> Unit,
     onCall: () -> Unit,
+    onMessage: () -> Unit,
     onLongPressSettings: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -123,6 +131,19 @@ fun HomeScreen(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
+                }
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 36.dp)
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.25f))
+                        .clickable(onClick = onMessage)
+                        .semantics { contentDescription = "Message $personName" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Message, null, tint = Color.White, modifier = Modifier.size(28.dp))
                 }
             }
             Spacer(Modifier.height(32.dp))
@@ -312,3 +333,28 @@ private fun Modifier.combinedClickableNoIndication(
     interaction: MutableInteractionSource,
     onClick: () -> Unit,
 ) = combinedClickable(interactionSource = interaction, indication = null, onClick = onClick)
+
+@Composable
+fun MessageDialog(personName: String, sending: Boolean, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { if (!sending) onDismiss() },
+        title = { Text("Message $personName") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                enabled = !sending,
+                minLines = 2,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSend(text) }, enabled = !sending && text.isNotBlank()) {
+                Text(if (sending) "Sending…" else "Send")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("Cancel") } },
+    )
+}
