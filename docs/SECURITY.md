@@ -1,69 +1,72 @@
-# Security model
+# simple-veej security model
 
-veejr is an early-stage end-to-end encrypted application. Do not rely on this
-client for sensitive data until its protocol implementation and cryptographic
-interoperability have been independently reviewed.
+simple-veej is an early-stage encrypted video-calling client. Protocol fixture
+tests establish compatibility; they do not replace independent security review.
 
-The Android client must never send or log:
+## Secrets and storage
 
-- the encryption passphrase;
-- the raw X25519 secret key;
-- decrypted message or attachment content;
-- attachment secretbox keys;
-- access or refresh tokens; or
-- complete capability URLs.
+Setup reads the encryption passphrase locally, derives the protocol-v1 wrapping
+key, and verifies that the unwrapped secret derives the account's public key.
+It clears the mutable passphrase and temporary key arrays after use. JVM and
+UI string copies cannot be guaranteed to be erased.
 
-Release builds reject cleartext instance URLs. The portable identity key stays
-wrapped using the protocol-defined passphrase format. A future device-local
-copy may be additionally protected by Android Keystore but must not replace the
-portable representation.
+Unlike the original messaging app's memory-only unlock policy, simple-veej
+intentionally remembers the identity across app and device restarts. Calls do
+not ask for the passphrase. `SimpleStore` encrypts the identity and token records
+with AES-256-GCM and a non-exportable Android Keystore key. The passphrase itself
+is never persisted. This policy has no timed expiry and is independent of the
+web client's browser unlock-duration preference.
 
-Debug builds alone permit cleartext instance URLs so an Android device using
-ADB port reversal can reach a developer's Phoenix server at
-`http://127.0.0.1:4000`. The debug
-manifest enables cleartext traffic and the debug URL parser permits HTTP;
-release variants disable both controls and continue to require HTTPS.
+The Keystore key does not require biometric or device authentication for each
+use. Anyone who can use the configured app can place and answer calls. Hardware
+backing depends on the device; a non-exportable key alone does not protect
+against a compromised app process or an attacker controlling an unlocked phone.
+Android backup is disabled in the manifest.
 
-Session tokens are persisted as a single AES-256-GCM record. The encryption key
-is generated inside Android Keystore and is non-exportable; malformed or
-undecryptable records are discarded. The instance URL is non-secret metadata
-and is stored separately. Selecting a different instance clears the prior token
-record so credentials cannot cross server boundaries.
+Endpoint, account ID, friend metadata/public key, button label and the last
+push-registration time are ordinary preferences. Starting over clears all app
+preferences after attempting logout; the Keystore wrapping key remains.
+Undecryptable records return null and require recovery/setup. Restored identity
+bytes are held temporarily for call signaling and zeroed when the sealer is
+destroyed. The app does not record calls or persist decrypted messages/files.
 
-Identity setup uploads only the public key and the protocol-v1
-passphrase-wrapped secret. Unlock verifies that the recovered secret derives
-the account's advertised public key before accepting it. Neither the
-encryption passphrase nor raw identity secret is placed in saved UI state or
-device persistence.
+## Network and peer trust
 
-## Cryptographic implementation
+Release builds require HTTPS and WSS. Only debug builds allow cleartext servers
+for local development. REST and socket clients do not follow redirects: use the
+actual instance hostname, not the `veejr.com` redirect. Credentials must not be
+forwarded to another origin. Socket upgrade URLs contain an access token and
+must never be logged in full.
 
-Protocol-v1 boxes use `org.purejava:tweetnacl-java`. The dependency is a
-pure-Java port of TweetNaCl, so the same implementation runs in JVM tests and
-on Android without native ABI packaging. Canonical fixtures assert
-byte-for-byte compatibility with the browser for PBKDF2 wrapping, public-key
-boxes, and attachment secretboxes, including authentication failure after
-ciphertext tampering.
+REST access tokens are refreshed after a 401. Refresh rotation is serialized;
+a rejected refresh removes the token record. Temporary transport failures keep
+credentials and allow retries. Socket 401/403 upgrade failures trigger account
+validation/refresh. Connection loss fails waiting actions without cancelling
+their caller's coroutine.
 
-Passing interoperability tests does not replace an independent security
-review. Dependency updates and changes under `core:crypto` require fixture
-validation and focused review.
+`SignalSealer` uses the shared TweetNaCl implementation for X25519 and
+XSalsa20-Poly1305 boxes. Invalid or malformed signals are ignored. WebRTC uses
+transport encryption for audio/video, including when TURN relays packets.
+The server still sees account relationships, call lifecycle and routing metadata.
+Peer public keys come from server-provided account/call data; this app does not
+provide an independent fingerprint-verification UI. Do not treat it as protection
+against malicious substitution of those public keys by a trusted server.
 
-The network client disables HTTP and HTTPS redirects. This is deliberate:
-native API credentials must never follow a server response to another origin.
-Release code permits only HTTPS instance URLs, does not install an HTTP logging
-interceptor, and keeps access and refresh tokens out of exception messages.
-Concurrent requests share a single refresh-token rotation. A rejected refresh
-clears the local session, and logout clears local tokens even when the server
-cannot be reached. The production `SessionTokenStore` must encrypt persisted
-tokens with an Android Keystore-protected key.
+FCM receives call identifiers and caller/expiry metadata, not SDP, identity
+secrets, passphrases, or media. The receiving phone checks expiry, then uses the
+authenticated server channel to answer. Notification text can expose caller
+information on the lock screen according to the phone's settings.
 
-Attachment upload requests use the account bearer token and a fresh idempotency
-key. Public attachment capability downloads never receive account bearer
-tokens. Blob redirects are disabled, origins cannot contain credentials or
-paths, and an HTTPS app accepts only HTTPS attachment origins. Local debug
-aliases (`localhost`, `127.0.0.1`, and `10.0.2.2`) are resolved back to the
-selected instance when their port matches. Attachment ciphertext is capped at
-the server's 25 MB limit and is authenticated with XSalsa20-Poly1305 before use.
-Decrypted viewer cache files are app-private, shared only through read-only
-`FileProvider` grants, and cleared on startup, logout, and instance change.
+## Diagnostics and tests
+
+Do not send or log passphrases, raw identity keys, access/refresh tokens, complete
+socket URLs, or decrypted signaling/media. Release ProGuard rules strip debug
+and verbose Android logging; warning/error logging remains. Debug WebRTC logs
+can include network candidates and call identifiers, so redact them before
+sharing and collect only the relevant interval.
+
+Canonical `protocol-fixtures/` tests cover browser-compatible wrapping, boxes,
+and attachment primitives inherited by the shared crypto module. The calling
+app has no attachment viewer or FileProvider. Socket lifecycle tests cover
+recovery and cleanup but do not exercise Android Keystore or native WebRTC.
+Test these on a real device as described in [CONNECTIONS.md](CONNECTIONS.md).
