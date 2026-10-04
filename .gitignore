@@ -16,3 +16,4 @@ keystore.properties
 app/release/
 google-services.json
 *.apk
+.agent-office/
