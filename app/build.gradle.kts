@@ -21,7 +21,7 @@ if (releaseSigningPropertiesFile.exists()) {
 
 android {
     namespace = "org.veejr.simple"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         // WebRTC's native library is ~11 MB per processor type. Phones are
