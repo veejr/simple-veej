@@ -349,13 +349,12 @@ private fun Modifier.combinedClickableNoIndication(
 fun MessageDialog(
     personName: String,
     recent: List<ChatMessage>,
-    sending: Boolean,
     onSend: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
-        onDismissRequest = { if (!sending) onDismiss() },
+        onDismissRequest = onDismiss,
         title = { Text("Message $personName") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -363,7 +362,6 @@ fun MessageDialog(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    enabled = !sending,
                     minLines = 2,
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
@@ -371,11 +369,9 @@ fun MessageDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSend(text) }, enabled = !sending && text.isNotBlank()) {
-                Text(if (sending) "Sending…" else "Send")
-            }
+            TextButton(onClick = { onSend(text) }, enabled = text.isNotBlank()) { Text("Send") }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -384,9 +380,9 @@ fun MessageDialog(
 fun ChatScreen(
     personName: String,
     messages: List<ChatMessage>,
-    sending: Boolean,
     error: String?,
     onSend: (String) -> Unit,
+    onRetry: (ChatMessage) -> Unit,
     onBack: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
@@ -410,7 +406,12 @@ fun ChatScreen(
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(messages, key = { it.id }) { Bubble(it, Modifier.fillMaxWidth()) }
+            items(messages, key = { it.id }) {
+                Bubble(
+                    it,
+                    if (it.failed) Modifier.fillMaxWidth().clickable { onRetry(it) } else Modifier.fillMaxWidth(),
+                )
+            }
         }
         if (error != null) {
             Text(error, color = Color(0xFFB00020), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp))
@@ -423,16 +424,15 @@ fun ChatScreen(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                enabled = !sending,
                 maxLines = 4,
                 placeholder = { Text("Message") },
                 modifier = Modifier.weight(1f),
             )
             IconButton(
                 onClick = { onSend(text); text = "" },
-                enabled = !sending && text.isNotBlank(),
+                enabled = text.isNotBlank(),
                 modifier = Modifier.size(56.dp).clip(CircleShape)
-                    .background(if (!sending && text.isNotBlank()) CallGreen else Color.LightGray),
+                    .background(if (text.isNotBlank()) CallGreen else Color.LightGray),
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = Color.White)
             }
@@ -444,14 +444,14 @@ fun ChatScreen(
 private fun Bubble(message: ChatMessage, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = if (message.mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Text(
-            message.text,
+            if (message.failed) "${message.text}\nNot sent. Tap to try again." else message.text,
             color = if (message.mine) Color.White else Color.Black,
             fontSize = 20.sp,
             modifier = Modifier
                 .fillMaxWidth(0.85f)
                 .wrapContentWidth(if (message.mine) Alignment.End else Alignment.Start)
                 .clip(RoundedCornerShape(16.dp))
-                .background(if (message.mine) CallGreen else Color(0xFFE6E6E6))
+                .background(if (message.failed) Color(0xFFB00020) else if (message.mine) CallGreen else Color(0xFFE6E6E6))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
     }

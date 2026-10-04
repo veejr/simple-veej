@@ -3,6 +3,8 @@ package org.veejr.simple
 import java.security.SecureRandom
 import java.time.Instant
 import java.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,9 +18,16 @@ import org.veejr.core.crypto.VeejrCrypto
 import org.veejr.core.network.AuthSessionManager
 import org.veejr.core.network.MessageBatchRequest
 import org.veejr.core.network.MessageEnvelopeRequest
+import org.veejr.core.network.ResolveRecipientsResponse
 
 /** One message in the conversation with the chosen friend. */
-data class ChatMessage(val id: String, val text: String, val mine: Boolean, val at: Instant)
+data class ChatMessage(
+    val id: String,
+    val text: String,
+    val mine: Boolean,
+    val at: Instant,
+    val failed: Boolean = false,
+)
 
 /**
  * Sends one sealed text message to the chosen friend: the same v1 `message`
@@ -31,14 +40,27 @@ class MessageSender(
 ) {
     private val crypto = VeejrCrypto()
 
-    suspend fun send(text: String) {
+    // Resolved once per friend; dropped when a send fails so a changed key is picked up.
+    @Volatile
+    private var cachedRecipients: Pair<String, ResolveRecipientsResponse>? = null
+
+    private suspend fun recipientsFor(manager: AuthSessionManager, personId: String): ResolveRecipientsResponse {
+        cachedRecipients?.takeIf { it.first == personId }?.let { return it.second }
+        return manager.resolveRecipients("contact", personId).also { cachedRecipients = personId to it }
+    }
+
+    suspend fun send(text: String) = withContext(Dispatchers.IO) {
+        sendNow(text)
+    }
+
+    private suspend fun sendNow(text: String) {
         val body = text.trim()
         require(body.isNotEmpty()) { "Type a message first." }
         val person = requireNotNull(store.myPerson) { "This phone is not set up." }
         val manager = requireNotNull(sessions()) { "This phone is not set up." }
         val secret = requireNotNull(store.identitySecret()) { "This phone is not set up." }
         try {
-            val resolved = manager.resolveRecipients("contact", person.id)
+            val resolved = recipientsFor(manager, person.id)
             require(resolved.missingKeys.isEmpty()) { "That person has no encryption key." }
             require(resolved.recipients.size >= 2) { "That person is no longer available." }
 
@@ -64,6 +86,9 @@ class MessageSender(
                 payload.fill(0)
             }
             manager.sendMessageBatch(idempotencyKey(), MessageBatchRequest(envelopes = envelopes))
+        } catch (e: Exception) {
+            cachedRecipients = null
+            throw e
         } finally {
             secret.fill(0)
         }
@@ -74,7 +99,9 @@ class MessageSender(
      * Envelopes that cannot be opened or are not part of this conversation
      * are skipped.
      */
-    suspend fun recent(limit: Int = 30): List<ChatMessage> {
+    suspend fun recent(limit: Int = 30): List<ChatMessage> = withContext(Dispatchers.IO) { recentNow(limit) }
+
+    private suspend fun recentNow(limit: Int): List<ChatMessage> {
         val person = store.myPerson ?: return emptyList()
         val manager = sessions() ?: return emptyList()
         val secret = store.identitySecret() ?: return emptyList()
