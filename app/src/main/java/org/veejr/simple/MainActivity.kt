@@ -142,8 +142,26 @@ class MainActivity : ComponentActivity() {
         var showChat by remember { mutableStateOf(false) }
         var recent by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
         var chatError by remember { mutableStateOf<String?>(null) }
-        var sending by remember { mutableStateOf(false) }
+        var pending by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
         var sentNote by remember { mutableStateOf<String?>(null) }
+
+        // Shows the message at once, sends in the background, marks it failed on error.
+        fun sendFromChat(local: ChatMessage) {
+            pending = pending + local
+            chatError = null
+            lifecycleScope.launch {
+                runCatching { messages.send(local.text) }
+                    .onSuccess {
+                        // Swap the local bubble for the server copy in one step.
+                        recent = runCatching { messages.recent() }.getOrDefault(recent)
+                        pending = pending.filterNot { it.id == local.id }
+                    }
+                    .onFailure { error ->
+                        chatError = error.message ?: "Message not sent."
+                        pending = pending.map { if (it.id == local.id) it.copy(failed = true) else it }
+                    }
+            }
+        }
 
         val openMessages: () -> Unit = {
             sentNote = null
@@ -216,14 +234,12 @@ class MainActivity : ComponentActivity() {
                 if (showMessage) MessageDialog(
                     personName = personName,
                     recent = recent,
-                    sending = sending,
                     onDismiss = { showMessage = false },
                     onSend = { text ->
-                        sending = true
+                        showMessage = false
+                        sentNote = "Sending…"
                         lifecycleScope.launch {
                             val result = runCatching { messages.send(text) }
-                            sending = false
-                            showMessage = false
                             sentNote = result.fold(
                                 onSuccess = { "Message sent." },
                                 onFailure = { it.message ?: "Message not sent." },
@@ -235,26 +251,20 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(showChat) {
                     while (showChat) {
                         kotlinx.coroutines.delay(CHAT_POLL_MILLIS)
-                        if (!sending) {
-                            runCatching { messages.recent() }.onSuccess { recent = it }
-                        }
+                        runCatching { messages.recent() }.onSuccess { recent = it }
                     }
                 }
                 if (showChat) ChatScreen(
                     personName = personName,
-                    messages = recent,
-                    sending = sending,
+                    messages = recent + pending,
                     error = chatError,
                     onBack = { showChat = false },
                     onSend = { text ->
-                        sending = true
-                        chatError = null
-                        lifecycleScope.launch {
-                            runCatching { messages.send(text) }
-                                .onFailure { chatError = it.message ?: "Message not sent." }
-                            recent = runCatching { messages.recent() }.getOrDefault(recent)
-                            sending = false
-                        }
+                        sendFromChat(ChatMessage("local-${System.nanoTime()}", text.trim(), true, java.time.Instant.now()))
+                    },
+                    onRetry = { failed ->
+                        pending = pending.filterNot { it.id == failed.id }
+                        sendFromChat(failed.copy(id = "local-${System.nanoTime()}", failed = false))
                     },
                 )
             }
