@@ -84,6 +84,13 @@ class SimpleStore(context: Context) : SessionTokenStore {
             if (value == null) remove(PUSH_KEY) else putLong(PUSH_KEY, value)
         }.apply()
 
+    /** Time of the newest incoming message the user has seen, or null before the first load. */
+    var lastReadAt: Long?
+        get() = if (preferences.contains(LAST_READ_KEY)) preferences.getLong(LAST_READ_KEY, 0L) else null
+        set(value) = preferences.edit().run {
+            if (value == null) remove(LAST_READ_KEY) else putLong(LAST_READ_KEY, value)
+        }.apply()
+
     /** Returns a fresh copy of the identity secret; the caller zeroes it. */
     fun identitySecret(): ByteArray? =
         preferences.getString(IDENTITY_KEY, null)?.let { encoded ->
@@ -183,6 +190,7 @@ class SimpleStore(context: Context) : SessionTokenStore {
         const val IDENTITY_KEY = "identity"
         const val TOKENS_KEY = "tokens"
         const val PUSH_KEY = "push_registered_at"
+        const val LAST_READ_KEY = "last_read_at"
         const val KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS = "simpleveej.store.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

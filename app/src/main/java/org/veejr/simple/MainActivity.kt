@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.em
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import org.veejr.simple.ui.CallingScreen
 import org.veejr.simple.ui.ChoosePersonScreen
@@ -163,10 +164,29 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Unread = an incoming message newer than the last one the user looked at.
+        var lastReadAt by remember { mutableStateOf(app.store.lastReadAt) }
+        val newestIncoming = recent.filter { !it.mine }.maxOfOrNull { it.at.toEpochMilli() }
+        val hasUnread = newestIncoming != null && newestIncoming > (lastReadAt ?: Long.MAX_VALUE)
+        fun markRead() {
+            if (newestIncoming != null && newestIncoming != lastReadAt) {
+                lastReadAt = newestIncoming
+                app.store.lastReadAt = newestIncoming
+            }
+        }
+
         // Refreshes the cached conversation without blocking the UI.
         val refreshRecent: () -> Unit = {
             lifecycleScope.launch {
-                runCatching { messages.recent() }.onSuccess { recent = it }
+                runCatching { messages.recent() }.onSuccess { loaded ->
+                    // First ever load: what is already there counts as read, not as news.
+                    if (app.store.lastReadAt == null) {
+                        val seed = loaded.filter { !it.mine }.maxOfOrNull { it.at.toEpochMilli() } ?: 1L
+                        app.store.lastReadAt = seed
+                        lastReadAt = seed
+                    }
+                    recent = loaded
+                }
             }
         }
         // Keep the conversation and recipient keys warm so tapping Message needs no network wait.
@@ -178,6 +198,7 @@ class MainActivity : ComponentActivity() {
         val openMessages: () -> Unit = {
             sentNote = null
             MessageNotifier.cancel(this)
+            markRead()
             // Decide from what is already loaded, open at once, refresh behind it.
             val cutoff = java.time.Instant.now().minus(CHAT_WINDOW)
             if (recent.any { !it.mine && it.at.isAfter(cutoff) }) {
@@ -242,6 +263,7 @@ class MainActivity : ComponentActivity() {
                     personName = personName,
                     banner = sentNote ?: (current as? CallState.Ended)?.message,
                     onMessage = openMessages,
+                    hasUnread = hasUnread,
                     fullScreenAllowed = fullScreenAllowed,
                     onAllowFullScreen = ::openFullScreenSettings,
                     onCall = { withPermissions { calls.callMyPerson() } },
@@ -263,6 +285,19 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 )
+                // Seeing the conversation, in the chat or the quick box, clears the glow.
+                LaunchedEffect(showChat, showMessage, recent) { if (showChat || showMessage) markRead() }
+                // While the app is on screen, notice new messages even with no chat open.
+                LaunchedEffect(showChat) {
+                    if (!showChat) {
+                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                            while (true) {
+                                kotlinx.coroutines.delay(UNREAD_POLL_MILLIS)
+                                runCatching { messages.recent() }.onSuccess { recent = it }
+                            }
+                        }
+                    }
+                }
                 // Keeps an open chat current; the effect is cancelled when it closes.
                 LaunchedEffect(showChat) {
                     while (showChat) {
@@ -331,6 +366,7 @@ class MainActivity : ComponentActivity() {
 
         /** An incoming message this recent opens the full chat instead of the quick box. */
         private const val CHAT_POLL_MILLIS = 5_000L
+        private const val UNREAD_POLL_MILLIS = 10_000L
         private val CHAT_WINDOW = java.time.Duration.ofMinutes(30)
 
         private val MEDIA_PERMISSIONS = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)

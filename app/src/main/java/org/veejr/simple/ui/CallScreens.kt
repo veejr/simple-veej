@@ -1,5 +1,7 @@
 package org.veejr.simple.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -52,6 +54,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -95,6 +102,7 @@ fun HomeScreen(
     onCall: () -> Unit,
     onMessage: () -> Unit,
     onLongPressSettings: () -> Unit,
+    hasUnread: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -125,6 +133,7 @@ fun HomeScreen(
                     .fillMaxWidth(0.82f)
                     .aspectRatio(1f)
                     .scale(if (pressed) 0.96f else 1f)
+                    .then(if (hasUnread) Modifier.unreadGlow() else Modifier)
                     .clip(CircleShape)
                     .background(CallGreen)
                     .combinedClickable(
@@ -133,7 +142,9 @@ fun HomeScreen(
                         onClick = onCall,
                         onLongClick = onLongPressSettings,
                     )
-                    .semantics { contentDescription = "Call $personName" },
+                    .semantics {
+                        contentDescription = if (hasUnread) "Call $personName. Unread message" else "Call $personName"
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -161,6 +172,16 @@ fun HomeScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Filled.Message, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                    if (hasUnread) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .background(UnreadAmber),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(32.dp))
@@ -173,6 +194,56 @@ fun HomeScreen(
             )
         }
     }
+}
+
+private val UnreadAmber = Color(0xFFFFD166)
+private val GlowColor = Color(0xFF8CFFB8)
+
+/**
+ * A soft breathing halo, a gentle swell of the whole circle, and a ripple that
+ * drifts outward and fades, so an unread message is noticeable at a glance
+ * without flashing.
+ */
+private fun Modifier.unreadGlow(): Modifier = composed {
+    val transition = rememberInfiniteTransition(label = "unread")
+    val breath by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "unread-breath",
+    )
+    val ripple by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = LinearOutSlowInEasing), RepeatMode.Restart),
+        label = "unread-ripple",
+    )
+    this
+        .graphicsLayer {
+            val swell = 1f + 0.025f * breath
+            scaleX = swell
+            scaleY = swell
+        }
+        .drawBehind {
+            val radius = size.minDimension / 2f
+            val halo = radius * (1.14f + 0.06f * breath)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0.72f to GlowColor.copy(alpha = 0.35f + 0.4f * breath),
+                    1f to Color.Transparent,
+                    center = center,
+                    radius = halo,
+                ),
+                radius = halo,
+                center = center,
+            )
+            drawCircle(
+                color = GlowColor.copy(alpha = 0.55f * (1f - ripple)),
+                radius = radius * (1f + 0.15f * ripple),
+                center = center,
+                style = Stroke(width = 5.dp.toPx()),
+            )
+        }
 }
 
 @Composable
