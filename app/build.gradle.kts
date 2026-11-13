@@ -55,6 +55,9 @@ android {
 
     buildTypes {
         debug {
+            // Installs beside the release app, so trying a local server
+            // never disturbs a phone's real setup.
+            applicationIdSuffix = ".debug"
             buildConfigField("String", "DEFAULT_INSTANCE_URL", "\"http://127.0.0.1:4000\"")
             buildConfigField("boolean", "ALLOW_HTTP", "true")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -92,6 +95,10 @@ android {
 kotlin {
     jvmToolchain(17)
 }
+
+// google-services.json only names the release package; the debug app runs
+// without push (it rings while open), so its Firebase config step is skipped.
+tasks.matching { it.name == "processDebugGoogleServices" }.configureEach { enabled = false }
 
 dependencies {
     implementation(project(":core:crypto"))

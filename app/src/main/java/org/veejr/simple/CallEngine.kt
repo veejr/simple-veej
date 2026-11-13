@@ -271,7 +271,8 @@ class CallEngine(
     // Diagnostics: whether video frames actually flow each way, and over
     // which candidate pair. Logged only; nothing leaves the device.
     private fun logStatsWhileConnected() {
-        if (statsJob?.isActive == true) return
+        // Release builds strip the log line, so do not gather the stats either.
+        if (!BuildConfig.DEBUG || statsJob?.isActive == true) return
         statsJob = scope.launch {
             repeat(STATS_SAMPLES) {
                 kotlinx.coroutines.delay(STATS_INTERVAL_MS)

@@ -51,6 +51,21 @@ class PhoenixSocketTest {
     }
 
     @Test
+    fun `no connection is attempted until a network is available`() = runTest {
+        val factory = FakeFactory()
+        val online = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val socket = PhoenixSocket(backgroundScope, factory, TOPIC, { online.await() }) { URL }
+        socket.start()
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(0, factory.sockets.size) // offline: no attempts, no radio wake-ups
+        online.complete(Unit)
+        runCurrent()
+        assertEquals(1, factory.sockets.size)
+        socket.stop()
+    }
+
+    @Test
     fun `stalled join times out and late replies cannot revive it`() = runTest {
         val factory = FakeFactory()
         val socket = PhoenixSocket(backgroundScope, factory, TOPIC) { URL }
