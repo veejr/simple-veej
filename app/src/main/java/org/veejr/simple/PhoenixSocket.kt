@@ -98,6 +98,11 @@ class PhoenixSocket(
     private val scope: CoroutineScope,
     private val client: WebSocket.Factory,
     private val topic: String,
+    /**
+     * Suspends until the device has a network. Without it an offline phone
+     * would wake its radio every few seconds for attempts that cannot work.
+     */
+    private val awaitNetwork: suspend () -> Unit = {},
     /** Returns the websocket URL with a currently valid token, or null to stop. */
     private val connectUrl: suspend (refreshFirst: Boolean) -> String?,
 ) {
@@ -160,6 +165,7 @@ class PhoenixSocket(
         while (currentCoroutineContext().isActive) {
             val connection = Connection(nextRef())
             try {
+                awaitNetwork()
                 val url = connectUrl(refreshFirst) ?: return
                 active = connection
                 refreshFirst = coroutineScope {

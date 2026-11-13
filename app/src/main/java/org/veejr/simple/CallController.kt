@@ -53,6 +53,8 @@ class CallController(
     private val scope: CoroutineScope,
     private val store: SimpleStore,
     private val sessions: () -> AuthSessionManager?,
+    /** True when a push can wake this phone for a ring while the socket is down. */
+    private val canWakeByPush: () -> Boolean = { false },
 ) {
     private val crypto = VeejrCrypto()
     private val eglBase: EglBase by lazy { EglBase.create() }
@@ -73,6 +75,7 @@ class CallController(
     private var sealer: SignalSealer? = null
     private var clearEndedJob: Job? = null
     private var timeoutJob: Job? = null
+    private var mediaWatchJob: Job? = null
     private val socketObservers = mutableListOf<Job>()
 
     val rtcEglContext: EglBase.Context get() = eglBase.eglBaseContext
@@ -84,7 +87,7 @@ class CallController(
         val apiBase = ApiEndpoint.parse(endpoint, allowHttp = BuildConfig.ALLOW_HTTP).uri.toString()
 
         mutableSignedOut.value = false
-        socket = PhoenixSocket(scope, PhoenixSocket.httpClient(), TOPIC) { refreshFirst ->
+        socket = PhoenixSocket(scope, PhoenixSocket.httpClient(), TOPIC, network::awaitOnline) { refreshFirst ->
             if (refreshFirst) {
                 try {
                     sessions()?.currentAccount()
@@ -111,9 +114,42 @@ class CallController(
             socketObservers += scope.launch { phoenix.events.collect(::onServerEvent) }
             socketObservers += scope.launch { phoenix.joined.filterNotNull().collect { reattach(phoenix) } }
         }
+        // Started with nothing on screen, for example by a push: do not linger.
+        if (!foreground) scheduleIdleDisconnect()
+    }
+
+    private val network = NetworkWatcher(context)
+    private var foreground = false
+    private var idleDisconnectJob: Job? = null
+
+    /** The app came on screen: keep the socket up so rings and calls are instant. */
+    fun onForeground() {
+        foreground = true
+        idleDisconnectJob?.cancel()
+        start()
+    }
+
+    /** The app left the screen: an idle socket is dropped once a push can ring instead. */
+    fun onBackground() {
+        foreground = false
+        scheduleIdleDisconnect()
+    }
+
+    // A socket held open in the background costs a heartbeat every 30 seconds
+    // and a reconnect on every network change, all to hear a ring that the
+    // push already delivers. Phones without push keep the socket.
+    private fun scheduleIdleDisconnect() {
+        idleDisconnectJob?.cancel()
+        if (foreground || !canWakeByPush()) return
+        idleDisconnectJob = scope.launch {
+            delay(BACKGROUND_GRACE_MS)
+            val idle = state.value is CallState.Idle || state.value is CallState.Ended
+            if (!foreground && idle && canWakeByPush()) stop()
+        }
     }
 
     fun stop() {
+        idleDisconnectJob?.cancel()
         socketObservers.forEach { it.cancel() }
         socketObservers.clear()
         socket?.stop()
@@ -335,7 +371,9 @@ class CallController(
             }
         }
 
-        scope.launch {
+        // Cancelled in end(); otherwise one collector per call would outlive it.
+        mediaWatchJob?.cancel()
+        mediaWatchJob = scope.launch {
             engine.connection.collect { connection ->
                 if (connection == MediaConnection.Failed && state.value is CallState.Active) {
                     hangUp()
@@ -347,6 +385,8 @@ class CallController(
     private fun end(message: String) {
         RingNotifier.cancel(context)
         CallService.stop(context)
+        mediaWatchJob?.cancel()
+        mediaWatchJob = null
         mutableEngine.value?.close()
         mutableEngine.value = null
         sealer?.destroy()
@@ -369,7 +409,13 @@ class CallController(
 
         // Whatever ended a ring or a call, its notifications go with it.
         if (next !is CallState.Incoming) RingNotifier.cancel(context)
-        if (next is CallState.Idle || next is CallState.Ended) CallService.stop(context)
+        if (next is CallState.Idle || next is CallState.Ended) {
+            CallService.stop(context)
+            // A call that ended while the app was off screen frees the socket too.
+            if (!foreground) scheduleIdleDisconnect()
+        } else {
+            idleDisconnectJob?.cancel()
+        }
     }
 
     // The server marks an unanswered ring missed without telling anyone, so
@@ -434,6 +480,9 @@ class CallController(
     private companion object {
         const val TOPIC = "calls:v1"
         const val JOIN_WAIT_MS = 10_000L
+
+        // Long enough to cover a quick switch to another app and back.
+        const val BACKGROUND_GRACE_MS = 60_000L
         const val ENDED_BANNER_MS = 3_000L
         const val MISSED_BANNER_MS = 60_000L
         const val DEFAULT_RING_MS = 60_000L

@@ -16,6 +16,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.veejr.core.crypto.VeejrCrypto
 import org.veejr.core.network.AuthSessionManager
+import org.veejr.core.network.Envelope
 import org.veejr.core.network.MessageBatchRequest
 import org.veejr.core.network.MessageEnvelopeRequest
 import org.veejr.core.network.ResolveRecipientsResponse
@@ -111,35 +112,56 @@ class MessageSender(
     private suspend fun recentNow(limit: Int): List<ChatMessage> {
         val person = store.myPerson ?: return emptyList()
         val manager = sessions() ?: return emptyList()
-        val secret = store.identitySecret() ?: return emptyList()
+        val page = manager.messageHistory(kind = "message")
+
+        // The history is polled every few seconds and rarely changes, so only
+        // envelopes not seen before are opened. The identity secret is read
+        // from the Keystore only when there is something new to open.
+        var secret: ByteArray? = null
         try {
-            val page = manager.messageHistory(kind = "message")
-            return page.envelopes.mapNotNull { envelope ->
-                runCatching {
-                    val plain = crypto.openBox(
-                        Base64.getDecoder().decode(envelope.ciphertext),
-                        Base64.getDecoder().decode(envelope.nonce),
-                        Base64.getDecoder().decode(envelope.peerKey),
-                        secret,
-                    ) ?: return@runCatching null
-                    val json = Json.parseToJsonElement(plain.toString(Charsets.UTF_8)).jsonObject
-                    plain.fill(0)
-                    if (json["kind"]?.jsonPrimitive?.content != "message") return@runCatching null
-                    val text = json["text"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                        ?: return@runCatching null
-                    val inConversation = if (envelope.sentByMe) {
-                        (json["to"] as? JsonArray)?.any { it.jsonPrimitive.content == person.handle } == true
-                    } else {
-                        envelope.sender.id == person.id
-                    }
-                    if (!inConversation) return@runCatching null
-                    ChatMessage(envelope.publicId, text, envelope.sentByMe, Instant.parse(envelope.createdAt))
-                }.getOrNull()
-            }.sortedBy { it.at }.takeLast(limit)
+            val seen = HashSet<String>()
+            val messages = page.envelopes.mapNotNull { envelope ->
+                val key = "${person.id}/${envelope.publicId}"
+                seen += key
+                opened[key]?.let { return@mapNotNull it.message }
+                val identity = secret
+                    ?: (store.identitySecret() ?: return emptyList()).also { secret = it }
+                open(envelope, person, identity).also { opened[key] = Opened(it) }
+            }
+            opened.keys.retainAll(seen)
+            return messages.sortedBy { it.at }.takeLast(limit)
         } finally {
-            secret.fill(0)
+            secret?.fill(0)
         }
     }
+
+    /** An envelope's result; [message] is null when it is not part of this conversation. */
+    private class Opened(val message: ChatMessage?)
+
+    // Keyed by friend and envelope id, and trimmed to the current page, so it
+    // stays small and a changed friend never sees another conversation.
+    private val opened = java.util.concurrent.ConcurrentHashMap<String, Opened>()
+
+    private fun open(envelope: Envelope, person: MyPerson, secret: ByteArray): ChatMessage? = runCatching {
+        val plain = crypto.openBox(
+            Base64.getDecoder().decode(envelope.ciphertext),
+            Base64.getDecoder().decode(envelope.nonce),
+            Base64.getDecoder().decode(envelope.peerKey),
+            secret,
+        ) ?: return@runCatching null
+        val json = Json.parseToJsonElement(plain.toString(Charsets.UTF_8)).jsonObject
+        plain.fill(0)
+        if (json["kind"]?.jsonPrimitive?.content != "message") return@runCatching null
+        val text = json["text"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: return@runCatching null
+        val inConversation = if (envelope.sentByMe) {
+            (json["to"] as? JsonArray)?.any { it.jsonPrimitive.content == person.handle } == true
+        } else {
+            envelope.sender.id == person.id
+        }
+        if (!inConversation) return@runCatching null
+        ChatMessage(envelope.publicId, text, envelope.sentByMe, Instant.parse(envelope.createdAt))
+    }.getOrNull()
 
     private fun idempotencyKey(): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16).also(SecureRandom()::nextBytes))

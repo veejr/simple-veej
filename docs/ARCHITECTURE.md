@@ -60,6 +60,12 @@ reconnection at the next interval. OkHttp also sends transport pings every
 cancelled, and callbacks from older connections cannot change current state.
 OkHttp callbacks are marshalled onto the controller's coroutine scope.
 
+The socket is only held while it is useful. `NetworkWatcher` pauses the
+reconnect loop while the phone has no network and resumes it when one returns.
+When the app leaves the screen with no call in progress and push registration
+is ready, the socket is closed after a 60-second grace; a push ring or
+returning to the app reconnects it. Phones without push keep the socket.
+
 After a rejoin, an outgoing or active call is reaccepted so server presence and
 signaling move to the new channel. The server's reconnect grace still applies:
 a sufficiently long outage ends the call. Reconnection is not a guarantee that
@@ -89,6 +95,11 @@ the last 30 minutes, a full-screen `ChatScreen` opens and polls history every
 5 seconds while visible; otherwise a small dialog shows the last three messages
 above a text box. Sending uses the v1 `message` payload, one envelope per
 recipient. Text only: no attachments, edits, or pagination.
+
+With the chat closed, the home screen checks for unread messages when a
+`new_message` push arrives. It also polls as a fallback: every 60 seconds when
+push registration is ready, every 10 seconds otherwise. Opened envelopes are
+cached by id, so a poll only decrypts messages it has not seen.
 
 ## Incoming calls and Android lifecycle
 

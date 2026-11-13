@@ -144,7 +144,14 @@ class SimpleStore(context: Context) : SessionTokenStore {
         return cipher.doFinal(encrypted.copyOfRange(IV_BYTES, encrypted.size))
     }
 
-    private fun secretKey(): SecretKey {
+    // The handle to the Keystore key; looking it up is a binder call, so it
+    // is done once rather than on every token or identity read.
+    @Volatile
+    private var cachedKey: SecretKey? = null
+
+    private fun secretKey(): SecretKey = cachedKey ?: loadOrCreateKey().also { cachedKey = it }
+
+    private fun loadOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE).run {
