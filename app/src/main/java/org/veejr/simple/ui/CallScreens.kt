@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
@@ -147,9 +148,11 @@ fun HomeScreen(
                     },
                 contentAlignment = Alignment.Center,
             ) {
+                // One column, so the message button always sits below the name
+                // instead of on top of it, however long the name is.
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Videocam, null, tint = Color.White, modifier = Modifier.size(96.dp))
-                    Spacer(Modifier.height(12.dp))
+                    Icon(Icons.Filled.Videocam, null, tint = Color.White, modifier = Modifier.size(72.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text("Call", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Medium)
                     Text(
                         personName,
@@ -157,30 +160,31 @@ fun HomeScreen(
                         fontSize = 44.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
-                }
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 36.dp)
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f))
-                        .clickable(onClick = onMessage)
-                        .semantics { contentDescription = "Message $personName" },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.Message, null, tint = Color.White, modifier = Modifier.size(28.dp))
-                    if (hasUnread) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(6.dp)
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .background(UnreadAmber),
-                        )
+                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.25f))
+                            .clickable(onClick = onMessage)
+                            .semantics { contentDescription = "Message $personName" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Filled.Message, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                        if (hasUnread) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(14.dp)
+                                    .clip(CircleShape)
+                                    .background(UnreadAmber),
+                            )
+                        }
                     }
                 }
             }

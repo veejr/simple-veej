@@ -20,6 +20,8 @@ class PushService : FirebaseMessagingService() {
             val person = SimpleVeejApp.from(this).store.myPerson
             if (person != null && data["kind"] == "message" && data["sender"] == person.handle) {
                 MessageNotifier.show(this, person.name)
+                // Lets an open app fetch the message now instead of waiting for its next poll.
+                android.os.Handler(mainLooper).post { SimpleVeejApp.from(this).onMessagePush() }
             }
             return
         }

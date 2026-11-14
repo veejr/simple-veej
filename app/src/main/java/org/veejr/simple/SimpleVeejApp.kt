@@ -28,7 +28,18 @@ sealed interface PushStatus {
 class SimpleVeejApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val store by lazy { SimpleStore(this) }
-    val calls by lazy { CallController(this, scope, store, ::sessions) }
+    val calls by lazy {
+        CallController(this, scope, store, ::sessions) { pushStatus.value is PushStatus.Ready }
+    }
+
+    private val mutableMessageArrivals = MutableStateFlow(0)
+
+    /** Counts pushes announcing a new message from the chosen friend. */
+    val messageArrivals: StateFlow<Int> = mutableMessageArrivals.asStateFlow()
+
+    fun onMessagePush() {
+        mutableMessageArrivals.value += 1
+    }
 
     private var cachedSessions: Pair<String, AuthSessionManager>? = null
 

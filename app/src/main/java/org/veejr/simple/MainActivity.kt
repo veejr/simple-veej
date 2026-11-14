@@ -52,7 +52,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // The screen stays awake while ringing or in a call. On the home
+        // screen it sleeps on the phone's own timeout, to save the battery.
+        lifecycleScope.launch {
+            app.calls.state.collect { state ->
+                val inCall = state !is CallState.Idle && state !is CallState.Ended
+                if (inCall) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
 
         setContent {
             // Text here runs from 16 to 44 sp; a line height fixed at the
@@ -72,7 +83,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        app.calls.start()
+        app.calls.onForeground()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        app.calls.onBackground()
     }
 
     // Permissions can change in Settings while we are away; re-read on return.
@@ -189,6 +205,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // A push announcing a new message fetches it at once.
+        val arrivals by app.messageArrivals.collectAsState()
+        LaunchedEffect(arrivals) { if (arrivals > 0) refreshRecent() }
         // Keep the conversation and recipient keys warm so tapping Message needs no network wait.
         LaunchedEffect(resumes) {
             runCatching { messages.prewarm() }
@@ -292,7 +311,10 @@ class MainActivity : ComponentActivity() {
                     if (!showChat) {
                         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                             while (true) {
-                                kotlinx.coroutines.delay(UNREAD_POLL_MILLIS)
+                                // With push working, polling is only a safety net.
+                                kotlinx.coroutines.delay(
+                                    if (push is PushStatus.Ready) UNREAD_POLL_WITH_PUSH_MILLIS else UNREAD_POLL_MILLIS,
+                                )
                                 runCatching { messages.recent() }.onSuccess { recent = it }
                             }
                         }
@@ -367,6 +389,7 @@ class MainActivity : ComponentActivity() {
         /** An incoming message this recent opens the full chat instead of the quick box. */
         private const val CHAT_POLL_MILLIS = 5_000L
         private const val UNREAD_POLL_MILLIS = 10_000L
+        private const val UNREAD_POLL_WITH_PUSH_MILLIS = 60_000L
         private val CHAT_WINDOW = java.time.Duration.ofMinutes(30)
 
         private val MEDIA_PERMISSIONS = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)

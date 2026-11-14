@@ -11,7 +11,9 @@ import androidx.core.app.NotificationManagerCompat
 /** The "new message" alert; tapping it opens the chat. */
 object MessageNotifier {
     private const val CHANNEL_ID = "messages"
-    private const val NOTIFICATION_ID = 2002
+    // Must differ from CallService's ongoing-call notification (2002), or a
+    // message arriving during a call would replace it.
+    private const val NOTIFICATION_ID = 2003
 
     fun show(context: Context, fromName: String) {
         val notifications = NotificationManagerCompat.from(context)
